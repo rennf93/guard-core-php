@@ -508,8 +508,10 @@ $entries = CloudProviderRegistry::encodeCached(
     ['10.1.0.0/16' => 'us-east-1']
 );
 $fakeStore->set('AWS', $entries, 3600);
-$t->same('["10.1.0.0/16|us-east-1","10.2.0.0/16"]', $fake->store['guard_core_m4u:cloud_ip_v2:AWS']['value'], 'payload is sorted JSON list under {prefix}cloud_ip_v2:{provider}');
+$t->same('["10.1.0.0/16|us-east-1", "10.2.0.0/16"]', $fake->store['guard_core_m4u:cloud_ip_v2:AWS']['value'], 'payload is a sorted JSON list with python json.dumps ", " separators under {prefix}cloud_ip_v2:{provider}');
 $t->same(['10.1.0.0/16|us-east-1', '10.2.0.0/16'], $fakeStore->get('AWS'), 'decode round-trips');
+$fakeStore->set('GCP', ['10.3.0.0/16', '10.4.0.0/16'], 3600);
+$t->same('["10.3.0.0/16", "10.4.0.0/16"]', $fake->store['guard_core_m4u:cloud_ip_v2:GCP']['value'], 'payload byte-matches python json.dumps list format (interop regression)');
 $t->same(null, $fakeStore->get('MISSING'), 'redis miss returns null');
 $fake->seed('guard_core_m4u:cloud_ip_v2:BAD', '{not-json');
 $t->same(null, $fakeStore->get('BAD'), 'malformed payload treated as miss');
