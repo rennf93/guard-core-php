@@ -10,12 +10,15 @@ final class RouteConfig
 {
     private int $revision = 0;
 
+    /** @var list<string> */
+    public readonly array $bypassedChecks;
+
     /**
      * @param list<string> $bypassedChecks invalid names are silently dropped
      *     (decorator-time leniency); valid names update the config
      */
     public function __construct(
-        public readonly array $bypassedChecks = [],
+        array $bypassedChecks = [],
         public readonly ?int $rateLimit = null,
         public readonly ?int $rateLimitWindow = null
     ) {

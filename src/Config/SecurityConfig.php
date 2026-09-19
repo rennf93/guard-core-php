@@ -442,6 +442,9 @@ final class SecurityConfig
             }
         }
         $decoded = str_replace('\\', '/', $decoded);
+        if (preg_match('/%(?![0-9A-Fa-f]{2})/', $decoded) === 1) {
+            return null;
+        }
         $segments = [];
         foreach (explode('/', $decoded) as $segment) {
             if ($segment === '.' || $segment === '') {

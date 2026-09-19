@@ -19,8 +19,7 @@ final class BlockEvents
         string $reason,
         string $triggerInfo,
         bool $passiveMode,
-        ?int $statusCode,
-        SecurityConfig $config
+        ?int $statusCode
     ): array {
         $clientIp = $request->state()->clientIp ?? $request->clientHost();
 

@@ -171,8 +171,7 @@ final class SecurityCheckPipeline
                 $stash['reason'] ?? '',
                 $stash['trigger_info'] ?? '',
                 false,
-                $response->statusCode(),
-                $this->config
+                $response->statusCode()
             )
         );
     }
