@@ -25,9 +25,13 @@ final class SecurityConfig
         'proto_pollution', 'code_injection', 'deserialization',
     ];
 
+    public const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
+
     public const DEFAULT_EXCLUDE_PATHS = [
         '/docs', '/redoc', '/openapi.json', '/openapi.yaml', '/favicon.ico', '/static',
     ];
+
+    public readonly ?\Closure $customRequestCheck;
 
     private int $revision = 0;
 
@@ -116,6 +120,10 @@ final class SecurityConfig
     /** @var (\Closure(object, string): mixed)|null */
     public readonly ?\Closure $authVerifier;
 
+    public readonly ?string $logSuspiciousLevel;
+
+    public readonly ?string $logRequestLevel;
+
     /** @var (\Closure(object, array<string, mixed>): void)|null */
     public readonly ?\Closure $onBlock;
 
@@ -187,7 +195,9 @@ final class SecurityConfig
         ?bool $enableAgent = null,
         ?bool $enableDynamicRules = null,
         ?\Closure $customRequestCheck = null,
-        ?\Closure $authVerifier = null
+        ?\Closure $authVerifier = null,
+        ?string $logSuspiciousLevel = null,
+        ?string $logRequestLevel = null
     ) {
         $this->enableRedis = $enableRedis ?? true;
         $this->redisUrl = $redisUrl;
@@ -237,6 +247,8 @@ final class SecurityConfig
         $this->enforceHttps = $enforceHttps ?? false;
         $this->blockedUserAgents = $this->validateBlockedUserAgents($blockedUserAgents ?? []);
         $this->authVerifier = $authVerifier;
+        $this->logSuspiciousLevel = $this->validateLogLevel($logSuspiciousLevel, 'log_suspicious_level', 'WARNING');
+        $this->logRequestLevel = $this->validateLogLevel($logRequestLevel, 'log_request_level', null);
 
         if ($blockedCountries !== [] || $whitelistCountries !== []) {
             throw new UnsupportedFeatureError('geo country blocking');
@@ -253,9 +265,17 @@ final class SecurityConfig
         if ($enableDynamicRules === true) {
             throw new UnsupportedFeatureError('dynamic rules');
         }
-        if ($customRequestCheck !== null) {
-            throw new UnsupportedFeatureError('custom_request_check');
+        $this->customRequestCheck = $customRequestCheck;
+    }
+
+    private function validateLogLevel(?string $level, string $field, ?string $default): ?string
+    {
+        $level = $level ?? $default;
+        if ($level !== null && !in_array($level, self::LOG_LEVELS, true)) {
+            throw new \InvalidArgumentException("{$field}: unknown log level '{$level}'");
         }
+
+        return $level;
     }
 
     /** @param array<int, string> $map @return array<int, string> */
@@ -357,6 +377,9 @@ final class SecurityConfig
             'enforceHttps' => $this->enforceHttps,
             'blockedUserAgents' => $this->blockedUserAgents,
             'authVerifier' => $this->authVerifier,
+            'logSuspiciousLevel' => $this->logSuspiciousLevel,
+            'logRequestLevel' => $this->logRequestLevel,
+            'customRequestCheck' => $this->customRequestCheck,
         ];
     }
 
