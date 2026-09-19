@@ -24,6 +24,7 @@ final class RouteConfig
      * @param list<string>|null $requireReferrer
      * @param (\Closure(object, string): mixed)|null $authVerifier
      * @param (\Closure(object, string): mixed)|null $apiKeyVerifier
+     * @param list<\Closure> $customValidators
      */
     public function __construct(
         array $bypassedChecks = [],
@@ -41,7 +42,8 @@ final class RouteConfig
         public readonly ?\Closure $authVerifier = null,
         public readonly ?\Closure $apiKeyVerifier = null,
         public readonly ?string $apiKeyHeader = null,
-        public readonly ?string $authorizationHeaderRequired = null
+        public readonly ?string $authorizationHeaderRequired = null,
+        public readonly array $customValidators = []
     ) {
         $this->bypassedChecks = array_values(array_filter(
             $bypassedChecks,
@@ -74,6 +76,7 @@ final class RouteConfig
             'apiKeyVerifier' => $this->apiKeyVerifier,
             'apiKeyHeader' => $this->apiKeyHeader,
             'authorizationHeaderRequired' => $this->authorizationHeaderRequired,
+            'customValidators' => $this->customValidators,
         ];
         foreach ($values as $name => $value) {
             if (!array_key_exists($name, $known)) {
