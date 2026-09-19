@@ -12,6 +12,10 @@ final class RequestState
 
     public ?RouteConfig $routeConfig = null;
 
+    public ?string $guardRouteId = null;
+
+    public mixed $authPrincipal = null;
+
     public bool $guardExclusionScoped = false;
 
     public bool $isWhitelisted = false;
