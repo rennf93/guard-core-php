@@ -120,6 +120,11 @@ final class CanonicalIp
             && substr($bytes16, 10, 2) === "\xff\xff";
     }
 
+    public static function maskBytes(string $bytes, int $prefixLen): string
+    {
+        return self::clearHostBits($bytes, $prefixLen);
+    }
+
     private static function clearHostBits(string $bytes, int $prefixLen): string
     {
         $out = $bytes;
