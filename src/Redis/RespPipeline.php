@@ -41,13 +41,14 @@ final class RespPipeline
             $this->connection->writeCommands($wire);
             $replies = $this->connection->readReplies(count($wire));
             array_shift($replies);
+            $execResult = array_pop($replies);
             foreach ($replies as $reply) {
                 if (is_object($reply) || (is_string($reply) && str_starts_with($reply, 'ERR'))) {
                     throw new GuardRedisException('Redis EXEC aborted: ' . var_export($reply, true));
                 }
             }
 
-            return $replies;
+            return is_array($execResult) ? $execResult : [];
         }
         $this->connection->writeCommands($commands);
 

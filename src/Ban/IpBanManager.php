@@ -382,15 +382,19 @@ final class IpBanManager
         };
         $hi = function (string $bytes, int $prefix): string {
             $masked = CanonicalIp::maskBytes($bytes, $prefix);
-            $lastByteIndex = (int) ceil($prefix / 8) - 1;
-            if ($lastByteIndex < 0) {
-                return $masked;
+            $len = strlen($masked);
+            $full = intdiv($prefix, 8);
+            $remBits0 = $prefix % 8;
+            for ($i = $full + ($remBits0 > 0 ? 1 : 0); $i < $len; $i++) {
+                $masked[$i] = chr(0xff);
             }
             $remBits = $prefix % 8;
-            if ($remBits === 0) {
-                return $masked;
+            if ($prefix === 0) {
+                return str_repeat(chr(0xff), $len);
             }
-            $masked[$lastByteIndex] = chr(ord($masked[$lastByteIndex]) | (0xff >> $remBits));
+            if ($remBits > 0) {
+                $masked[$full] = chr(ord($masked[$full]) | (0xff >> $remBits));
+            }
 
             return $masked;
         };

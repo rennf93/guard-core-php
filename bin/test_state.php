@@ -1,0 +1,275 @@
+<?php
+
+declare(strict_types=1);
+
+use RenzoFranceschini\GuardCore\Ban\BanEventSink;
+use RenzoFranceschini\GuardCore\Ban\IpBanManager;
+use RenzoFranceschini\GuardCore\Ip\CanonicalIp;
+use RenzoFranceschini\GuardCore\Redis\GuardRedisException;
+use RenzoFranceschini\GuardCore\Redis\RedisHandler;
+use RenzoFranceschini\GuardCore\Redis\RespConnection;
+use RenzoFranceschini\GuardCore\Redis\RespPipeline;
+
+
+require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../tests/FakeRespConnection.php';
+
+final class TestRunner
+{
+    public int $passed = 0;
+    public int $failed = 0;
+    private string $section = '';
+
+    public function section(string $name): void
+    {
+        $this->section = $name;
+        echo "=== {$name} ===\n";
+    }
+
+    public function ok(bool $condition, string $label): void
+    {
+        if ($condition) {
+            $this->passed++;
+            echo "  PASS {$label}\n";
+        } else {
+            $this->failed++;
+            echo "  FAIL {$this->section} :: {$label}\n";
+        }
+    }
+
+    public function same(mixed $expected, mixed $actual, string $label): void
+    {
+        $this->ok($expected === $actual, "{$label} (" . var_export($actual, true) . ")");
+    }
+
+    public function throws(callable $fn, string $class, string $label): void
+    {
+        try {
+            $fn();
+            $this->ok(false, "{$label} (no exception thrown)");
+        } catch (\Throwable $e) {
+            $this->ok($e instanceof $class, "{$label} (threw " . get_class($e) . ': ' . $e->getMessage() . ')');
+        }
+    }
+
+    public function summary(): int
+    {
+        echo "\nPassed: {$this->passed}, Failed: {$this->failed}\n";
+        echo ($this->failed === 0 ? 'GREEN' : 'RED') . "\n";
+
+        return $this->failed === 0 ? 0 : 1;
+    }
+}
+
+final class RecordingEventSink implements BanEventSink
+{
+    public array $bans = [];
+    public array $unbans = [];
+
+    public function sendBanEvent(string $ip, int $duration, string $reason): void
+    {
+        $this->bans[] = ['ip' => $ip, 'duration' => $duration, 'reason' => $reason];
+    }
+
+    public function sendUnbanEvent(string $ip): void
+    {
+        $this->unbans[] = $ip;
+    }
+}
+
+$t = new TestRunner();
+
+$t->section('CanonicalIp');
+$t->same('1.2.3.4', CanonicalIp::stripBrackets('[1.2.3.4]'), 'stripBrackets');
+$t->same('1.2.3.4', CanonicalIp::canonicalize('[1.2.3.4]'), 'bracketed IPv4 canonicalized');
+$t->same('2001:db8::1', CanonicalIp::canonicalize('[2001:0DB8:0000:0000:0000:0000:0000:0001]'), 'bracketed full IPv6 compressed + lowercased');
+$t->same('192.168.1.1', CanonicalIp::canonicalize('::ffff:192.168.1.1'), 'IPv4-mapped collapsed');
+$t->same('10.0.0.1', CanonicalIp::canonicalize('[::ffff:10.0.0.1]'), 'bracketed IPv4-mapped collapsed');
+$t->same('::ffff:102:304%eth0', CanonicalIp::canonicalize('::ffff:1.2.3.4%eth0'), 'scoped IPv4-mapped stays IPv6-rendered with scope');
+$t->same('fe80::1%eth0', CanonicalIp::canonicalize('fe80::1%eth0'), 'scope id preserved');
+$t->same('::', CanonicalIp::canonicalize('0:0:0:0:0:0:0:0'), 'all-zero compressed');
+$t->same('2001:0:0:1::1', CanonicalIp::canonicalize('2001:0:0:1:0:0:0:1'), 'longest zero run wins, leftmost on tie');
+$t->same('::1', CanonicalIp::canonicalize('0:0:0:0:0:0:0:1'), 'loopback compressed');
+$t->same('1.2.3.4', CanonicalIp::canonicalize('1.2.3.4'), 'IPv4 passthrough');
+$t->same('not-an-ip', CanonicalIp::canonicalize('not-an-ip'), 'parse failure passthrough');
+$t->same('[not-an-ip]', CanonicalIp::canonicalize('[not-an-ip]'), 'parse failure passthrough keeps brackets');
+$t->same('unknown', CanonicalIp::canonicalize('unknown'), 'identity string passthrough');
+$t->throws(fn () => CanonicalIp::canonicalNetwork('10.0.0.0'), \InvalidArgumentException::class, 'canonicalNetwork requires prefix');
+$t->same('10.0.0.0/24', CanonicalIp::canonicalNetwork('10.0.0.9/24'), 'host bits cleared v4');
+$t->same('2001:db8:dead::/48', CanonicalIp::canonicalNetwork('2001:db8:dead:beef::1/48'), 'host bits cleared v6');
+$t->ok(CanonicalIp::networkContains('10.0.0.0/24', '10.0.0.199'), 'networkContains hit');
+$t->ok(!CanonicalIp::networkContains('10.0.0.0/24', '10.0.1.1'), 'networkContains miss');
+$t->ok(CanonicalIp::networkContains('2001:db8::/32', '2001:db8:aaaa::1'), 'networkContains v6 hit');
+
+$t->section('Ban expiry float-string format');
+$t->same('1735689600.123456', IpBanManager::formatExpiry(1735689600.123456), 'six-digit microsecond fraction');
+$t->same('1735689600.0', IpBanManager::formatExpiry(1735689600.0), 'integral value keeps .0 like Python repr');
+$t->ok(preg_match('/^\d+\.\d+$/', IpBanManager::formatExpiry(microtime(true) + 600)) === 1, 'realistic expiry is a decimal float string');
+$t->same(1735689600.123456, (float) IpBanManager::formatExpiry(1735689600.123456), 'round-trips as float');
+
+$t->section('Redis key grammar (spec 08) via namespaced helpers');
+$fake = new FakeRespConnection();
+$h = new RedisHandler(true, 'guard_core:', connection: $fake);
+$t->ok($h->setKey('banned_ips', '1.2.3.4', '1735689600.5', 600), 'setKey with ttl');
+$t->same('1735689600.5', $fake->store['guard_core:banned_ips:1.2.3.4']['value'], 'full key is {prefix}banned_ips:{ip} byte-exact');
+$t->ok($fake->store['guard_core:banned_ips:1.2.3.4']['px'] !== null, 'ttl stored');
+$t->same('1735689600.5', $h->getKey('banned_ips', '1.2.3.4'), 'getKey round-trip');
+$t->same(null, $h->getKey('banned_ips', 'nope'), 'miss returns null, never throws');
+$t->same('gp:banned_networks:10.0.0.0/24', (new RedisHandler(true, 'gp:', connection: $fake))->fullKey('banned_networks', '10.0.0.0/24'), 'network key grammar');
+$t->ok($h->setKey('patterns', 'custom', 'p1,p2'), 'setKey without ttl persists');
+$t->ok($fake->store['guard_core:patterns:custom']['px'] === null, 'ttl=null persists');
+$t->ok($h->setKey('x', 'y', 'v', 0), 'setKey ttl=0 accepted');
+$t->ok($fake->store['guard_core:x:y']['px'] === null, 'ttl=0 treated as persist (spec 08 discrepancy 3)');
+$t->same(1, $h->delete('banned_ips', '1.2.3.4'), 'delete count');
+$t->same(null, $h->getKey('banned_ips', '1.2.3.4'), 'delete removes key');
+$fake->seed('guard_core:banned_ips:2.2.2.2', '1');
+$fake->seed('guard_core:banned_ips:3.3.3.3', '1');
+$fake->seed('guard_core:other:x', '1');
+$t->same(['guard_core:banned_ips:2.2.2.2', 'guard_core:banned_ips:3.3.3.3'], $h->keys('banned_ips:*'), 'keys() prefixes pattern');
+$t->same(2, $h->deletePattern('banned_ips:*'), 'deletePattern removes matches');
+$t->same(['guard_core:patterns:custom', 'guard_core:x:y', 'guard_core:other:x'], array_keys($fake->store), 'deletePattern leaves others');
+$t->same(null, (new RedisHandler(false, connection: $fake))->getKey('a', 'b'), 'disabled redis returns null');
+$t->same(1, $h->incr('rate_limit:rate', '1.2.3.4', 60), 'incr pipeline');
+$px = $fake->store['guard_core:rate_limit:rate:1.2.3.4']['px'];
+$t->ok($px !== null, 'incr applies EXPIRE');
+$t->same(2, $h->incr('rate_limit:rate', '1.2.3.4'), 'incr second hit');
+
+$t->section('MULTI-EXEC pipeline over fake');
+$pipe = $h->connection()->pipeline()->multi();
+$pipe->set('guard_core:mk', 'mv')->get('guard_core:mk')->incr('guard_core:mc');
+$res = $pipe->execute();
+$t->same(['OK', 'mv', 1], $res, 'MULTI/EXEC replies');
+
+$t->section('Ban lifecycle with in-memory Redis');
+$sink = new RecordingEventSink();
+$warnings = [];
+$mgr = new IpBanManager([], function (string $m) use (&$warnings) { $warnings[] = $m; }, $sink);
+$mgr->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $fake));
+$t->ok($mgr->ban('203.0.113.9', 600, 'unit_test'), 'ban returns true');
+$t->same([['ip' => '203.0.113.9', 'duration' => 600, 'reason' => 'unit_test']], $sink->bans, 'ip_banned event shape');
+$banKey = 'guard_core:banned_ips:203.0.113.9';
+$t->ok(isset($fake->store[$banKey]), 'redis ban key exists');
+$t->ok((float) $fake->store[$banKey]['value'] > microtime(true) + 590, 'stored expiry is float-string now+duration');
+$t->ok($fake->store[$banKey]['px'] - microtime(true) * 1000 <= 600 * 1000, 'redis TTL equals duration');
+$t->ok($mgr->isIpBanned('203.0.113.9'), 'is_ip_banned true (local exact)');
+$t->ok($mgr->isIpBanned('[203.0.113.9]'), 'canonical input matches');
+$t->ok(!$mgr->isIpBanned('203.0.113.10'), 'unbanned ip false');
+$fake->seed('guard_core:banned_ips:198.51.100.7', (string) (microtime(true) + 900), 900000);
+$mgr2 = new IpBanManager([], null, $sink);
+$mgr2->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $fake));
+$t->ok($mgr2->isIpBanned('198.51.100.7'), 'redis exact repopulates local cache');
+$fake->seed('guard_core:banned_ips:198.51.100.8', (string) (microtime(true) - 5), 1000);
+$t->ok(!$mgr2->isIpBanned('198.51.100.8'), 'stale redis entry is not banned');
+$t->ok(!isset($fake->store['guard_core:banned_ips:198.51.100.8']), 'early delete on stale redis entry (normative)');
+$t->throws(fn () => $mgr->ban('1.2.3.4', 0), \InvalidArgumentException::class, 'duration 0 rejected');
+$t->throws(fn () => $mgr->ban('1.2.3.4', -5), \InvalidArgumentException::class, 'negative duration rejected');
+$t->ok(!$mgr->ban('127.0.0.1', 600), 'loopback ban refused');
+$t->ok(!isset($fake->store['guard_core:banned_ips:127.0.0.1']), 'refused ban writes nothing');
+$t->ok(!$mgr->ban('::1', 600), 'IPv6 loopback ban refused');
+$t->ok(!$mgr->ban('127.4.5.6', 600), 'inside 127.0.0.0/8 refused');
+$proxyMgr = new IpBanManager(['10.10.0.0/16', 'not-a-network'], null, $sink);
+$proxyMgr->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $fake));
+$t->ok(!$proxyMgr->ban('10.10.3.4', 600), 'trusted-proxy IP ban refused');
+$t->ok(!$proxyMgr->ban('10.10.77.0/24', 600), 'trusted-proxy CIDR ban refused');
+$t->ok($proxyMgr->ban('10.11.0.1', 600), 'outside trusted proxy allowed');
+$t->ok(count(array_filter($warnings, fn ($w) => str_contains($w, 'self-DoS'))) >= 2, 'refusals warned');
+$t->ok($mgr->unban('203.0.113.9') === null, 'unban runs');
+$t->ok(!$mgr->isIpBanned('203.0.113.9'), 'unbanned locally');
+$t->ok(!isset($fake->store[$banKey]), 'unban deletes redis key');
+$t->same(['203.0.113.9'], $sink->unbans, 'ip_unbanned event');
+
+$t->section('CIDR bans and local clamp');
+$localOnly = new IpBanManager([], null, $sink);
+$t->ok($localOnly->ban('10.77.1.2/8', 600), 'CIDR ban without redis');
+$t->ok($localOnly->isIpBanned('10.200.3.4'), 'CIDR covers addresses');
+$t->ok(!$localOnly->isIpBanned('192.168.5.5'), 'CIDR does not cover other ranges');
+$t->throws(fn () => $localOnly->ban('not-a-cidr/40', 600), \InvalidArgumentException::class, 'invalid CIDR rejected');
+$clamps = [];
+$clamped = new IpBanManager([], function (string $m) use (&$clamps) { $clamps[] = $m; }, $sink);
+$t->ok($clamped->ban('5.5.5.5', 7200), 'over-cap local ban succeeds');
+$t->ok(count(array_filter($clamps, fn ($m) => str_contains($m, 'shortened from 7200s to 3600s'))) === 1, 'clamp warning text');
+$last = array_values(array_slice($sink->bans, -1))[0];
+$t->same(3600, $last['duration'], 'event duration clamped to LOCAL_CACHE_TTL_CAP_SECONDS');
+$t->ok($clamped->isIpBanned('5.5.5.5'), 'clamped ban enforced');
+
+$t->section('Redis-failure fallback clamp');
+$failing = new FakeRespConnection();
+$failing->failWrites = true;
+$fMgr = new IpBanManager([], null, $sink);
+$fMgr->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $failing));
+$t->ok($fMgr->ban('6.6.6.6', 7200), 'ban survives redis failure');
+$t->ok($fMgr->isIpBanned('6.6.6.6'), 'local-only ban enforced');
+$fdur = array_values(array_slice($sink->bans, -1))[0]['duration'];
+$t->same(3600, $fdur, 'redis-failure ban clamped to 3600');
+$fCidr = new IpBanManager([], null, $sink);
+$fCidr->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $failing));
+$t->ok($fCidr->ban('172.20.0.0/16', 7200), 'CIDR ban survives redis failure');
+$t->ok($fCidr->isIpBanned('172.20.9.9'), 'CIDR local-only ban enforced');
+$t->throws(function () use ($failing): void {
+    (new RedisHandler(true, 'guard_core:', connection: $failing))->getKey('a', 'b');
+}, GuardRedisException::class, 'operation failure throws GuardRedisException (503)');
+$t->same(503, (function () use ($failing) {
+    try {
+        (new RedisHandler(true, 'guard_core:', connection: $failing))->setKey('a', 'b', 'v');
+    } catch (GuardRedisException $e) {
+        return $e->getCode();
+    }
+
+    return 0;
+})(), '503 semantics on setKey failure');
+
+$t->section('Legacy ban-key migration (spec 08 migration algorithm)');
+$mk = new FakeRespConnection();
+$mk->seed('guard_core:banned_ips:[2001:db8::1]', '999', 5000);
+$mk->seed('guard_core:banned_ips:203.0.113.1', '123', 5000);
+$mk->seed('guard_core:banned_ips:[10.9.9.9]', '555');
+$mk->seed('guard_core:banned_ips:[10.1.1.1]', '444', 5000);
+$mk->seed('guard_core:banned_ips:10.1.1.1', '444', 2000);
+$mMgr = new IpBanManager([], null, $sink);
+$ok = $mMgr->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $mk));
+$t->ok($ok, 'migration reports success');
+$t->ok(!isset($mk->store['guard_core:banned_ips:[2001:db8::1]']) && isset($mk->store['guard_core:banned_ips:203.0.113.1']), 'legacy key deleted, canonical-key untouched (skip)');
+$t->ok(isset($mk->store['guard_core:banned_ips:2001:db8::1']), 'canonical key written from legacy');
+$t->ok($mk->store['guard_core:banned_ips:2001:db8::1']['value'] === '999', 'canonical key keeps value');
+$t->ok($mk->store['guard_core:banned_ips:2001:db8::1']['px'] - microtime(true) * 1000 <= 5000, 'canonical key keeps longer TTL via SET PX');
+$t->ok(!isset($mk->store['guard_core:banned_ips:[10.9.9.9]']) && !isset($mk->store['guard_core:banned_ips:10.9.9.9']), 'persistent legacy key (pttl<=0) deleted, never SET');
+$mMgr2 = new IpBanManager([], null, $sink);
+$mk2 = new FakeRespConnection();
+$mk2->seed('guard_core:banned_ips:[10.1.1.1]', '444', 5000);
+$mMgr2->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $mk2));
+$t->ok(!isset($mk2->store['guard_core:banned_ips:[10.1.1.1]']) && isset($mk2->store['guard_core:banned_ips:10.1.1.1']), 'keep-longer comparison: canonical TTL raised');
+$t->ok($mk2->store['guard_core:banned_ips:10.1.1.1']['px'] - microtime(true) * 1000 > 4000, 'canonical now has the longer expiry');
+$mMgr3 = new IpBanManager([], null, $sink);
+$mk3 = new FakeRespConnection();
+$mk3->seed('guard_core:banned_ips:[10.1.1.1]', '444', -100);
+$mMgr3->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $mk3));
+$t->ok(!isset($mk3->store['guard_core:banned_ips:[10.1.1.1]']), 'expired legacy key deleted');
+
+$t->section('reset()');
+$rFake = new FakeRespConnection();
+$rMgr = new IpBanManager([], null, $sink);
+$rMgr->initializeRedis(new RedisHandler(true, 'guard_core:', connection: $rFake));
+$rMgr->ban('7.7.7.7', 600);
+$rMgr->ban('10.0.0.0/8', 600);
+$rMgr->reset();
+$t->ok(!$rMgr->isIpBanned('7.7.7.7'), 'reset clears local exact');
+$t->ok(!$rMgr->isIpBanned('10.4.4.4'), 'reset clears local networks');
+$rIps = array_filter(array_keys($rFake->store), fn ($k) => str_contains($k, 'banned_ips:'));
+$t->ok($rIps === [], 'reset deletes redis ban keys (networks keys are per-process per spec)');
+
+$t->section('Disabled redis state semantics');
+$dMgr = new IpBanManager([], null, $sink);
+$dMgr->initializeRedis(null);
+$t->ok($dMgr->ban('8.8.8.8', 7200), 'ban without redis');
+$t->ok($dMgr->isIpBanned('8.8.8.8'), 'local-only enforcement');
+$ddur = array_values(array_slice($sink->bans, -1))[0]['duration'];
+$t->same(3600, $ddur, 'no-handler ban clamped to 3600 (spec 09)');
+
+$exit = $t->summary();
+
+$integration = in_array('--integration', $argv, true);
+if ($integration) {
+    $exit = max($exit, (require __DIR__ . '/integration_state.php')($t));
+}
+
+exit($exit);

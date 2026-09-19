@@ -22,7 +22,7 @@ final class CanonicalIp
         if ($scopePos !== false) {
             $addrPart = substr($stripped, 0, $scopePos);
             $scope = substr($stripped, $scopePos + 1);
-            $text = self::canonicalText($addrPart);
+            $text = self::canonicalText($addrPart, allowV4MappedCollapse: false);
             if ($text === null) {
                 return $value;
             }
@@ -95,7 +95,7 @@ final class CanonicalIp
             && str_starts_with(inet_ntop(substr($bytes, 12, 4)), '127.');
     }
 
-    private static function canonicalText(string $value): ?string
+    private static function canonicalText(string $value, bool $allowV4MappedCollapse = true): ?string
     {
         if (filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return $value;
@@ -107,7 +107,7 @@ final class CanonicalIp
         if ($bytes === false || strlen($bytes) !== 16) {
             return null;
         }
-        if (self::isV4Mapped($bytes)) {
+        if ($allowV4MappedCollapse && self::isV4Mapped($bytes)) {
             return inet_ntop(substr($bytes, 12, 4));
         }
 

@@ -66,7 +66,9 @@ class RespConnection
             $args[] = (string) $px;
         }
 
-        return $this->command(...$args) === true;
+        $reply = $this->command(...$args);
+
+        return $reply === true || $reply === 'OK';
     }
 
     public function del(string ...$keys): int
