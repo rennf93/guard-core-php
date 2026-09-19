@@ -148,10 +148,7 @@ $logger = new SimpleRequestLogger();
 $req = m3cRequest('/login');
 $hookConfig = new SecurityConfig(passiveMode: true, onBlock: $hook);
 LogActivity::log($req, $logger, $hookConfig, logType: 'suspicious', level: 'WARNING', reason: 'r', passiveMode: true, triggerInfo: 'trig', checkName: 'custom_validators');
-$t->same(1, count($payloads), 'passive suspicious fires on_block immediately');
-$t->same(true, $payloads[0]['passive_mode'], 'passive on_block payload passive_mode true');
-$t->same(null, $payloads[0]['status_code'], 'passive on_block payload no status');
-$t->same('custom_validators', $payloads[0]['check_name'], 'custom_validators on_block not suppressed');
+$t->same([], $payloads, 'custom_validators excluded from on_block');
 
 $payloads = [];
 $logger = new SimpleRequestLogger();
@@ -249,9 +246,7 @@ $req = m3cRequest('/v');
 $req->state()->routeConfig = new RenzoFranceschini\GuardCore\Routing\RouteConfig(customValidators: [static fn ($r) => $blockingResponse]);
 $pipeline = new SecurityCheckPipeline([new CustomValidatorsCheck($hookConfig, $responseFactory)], $hookConfig);
 $pipeline->execute($req);
-$t->same(1, count($payloads), 'on_block fired for custom_validators (not suppressed)');
-$t->same('custom_validators', $payloads[0]['check_name'], 'hook check_name');
-$t->same('Custom validation failed', $payloads[0]['reason'], 'hook reason from stash');
+$t->same([], $payloads, 'on_block suppressed for custom_validators');
 
 $t->section('custom_request check');
 $config = new SecurityConfig();

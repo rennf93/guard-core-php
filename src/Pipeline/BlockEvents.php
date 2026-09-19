@@ -6,7 +6,7 @@ namespace RenzoFranceschini\GuardCore\Pipeline;
 
 final class BlockEvents
 {
-    public const ON_BLOCK_EXCLUDED_CHECK_NAMES = ['custom_request', 'https_enforcement'];
+    public const ON_BLOCK_EXCLUDED_CHECK_NAMES = ['custom_request', 'custom_validators', 'https_enforcement'];
 
     /**
      * Payload keys per spec 02 (on_block) / _utils/block_events.py.
