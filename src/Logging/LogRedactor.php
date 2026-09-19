@@ -131,15 +131,23 @@ final class LogRedactor
 
     /**
      * JSON object/array redaction when the text (or its percent-decoded form)
-     * parses; otherwise XML element redaction, then pair redaction.
+     * parses; otherwise XML element redaction, then pair redaction. The
+     * sensitive name set is the shared defaults merged with the config sets.
      *
-     * @param list<string> $sensitive
+     * @param list<string>|null $extraParams
+     * @param list<string>|null $extraBodyFields
+     * @param list<string>|null $extraHeaders
      */
-    public static function redactBlob(string $text, array $sensitive): string
-    {
+    public static function redactBlob(
+        string $text,
+        ?array $extraParams = null,
+        ?array $extraBodyFields = null,
+        ?array $extraHeaders = null
+    ): string {
         if ($text === '') {
             return $text;
         }
+        $sensitive = self::mergedSensitiveNames($extraParams, $extraBodyFields, $extraHeaders);
         $json = self::redactJsonText($text, $sensitive);
         if ($json !== null) {
             return $json;

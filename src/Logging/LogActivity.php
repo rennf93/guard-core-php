@@ -58,6 +58,16 @@ final class LogActivity
     }
 
     /** @param array<string, string> $context */
+    private static function headersSegment(array $headers): string
+    {
+        $parts = [];
+        foreach ($headers as $name => $value) {
+            $parts[] = $name . '=' . $value;
+        }
+
+        return implode(', ', $parts);
+    }
+
     private static function buildMessage(
         array $context,
         string $logType,
@@ -67,22 +77,22 @@ final class LogActivity
     ): string {
         if ($logType === 'request') {
             $details = 'Request from ' . $context['client_ip'] . ': ' . $context['method'] . ' ' . $context['url'];
-            $reasonMessage = 'Headers: ' . $context['headers'];
+            $reasonMessage = 'Headers: ' . self::headersSegment($context['headers']);
         } elseif ($logType === 'suspicious') {
             $lead = $passiveMode ? '[PASSIVE MODE] Penetration attempt detected from' : 'Suspicious activity detected from';
             $details = $lead . ' ' . $context['client_ip'] . ': ' . $context['method'] . ' ' . $context['url'];
             if ($passiveMode) {
-                $reasonMessage = 'Headers: ' . $context['headers'];
+                $reasonMessage = 'Headers: ' . self::headersSegment($context['headers']);
                 $triggerMessage = $triggerInfo !== '' ? 'Trigger: ' . $triggerInfo : '';
                 if ($triggerMessage !== '') {
                     $reasonMessage = $triggerMessage . ' - ' . $reasonMessage;
                 }
             } else {
-                $reasonMessage = 'Reason: ' . $reason . ' - Headers: ' . $context['headers'];
+                $reasonMessage = 'Reason: ' . $reason . ' - Headers: ' . self::headersSegment($context['headers']);
             }
         } else {
             $details = ucfirst($logType) . ' from ' . $context['client_ip'] . ': ' . $context['method'] . ' ' . $context['url'];
-            $reasonMessage = 'Details: ' . $reason . ' - Headers: ' . $context['headers'];
+            $reasonMessage = 'Details: ' . $reason . ' - Headers: ' . self::headersSegment($context['headers']);
         }
 
         return $details . ' - ' . $reasonMessage;
