@@ -46,7 +46,9 @@ abstract class SecurityCheck
 
     public function createErrorResponse(int $statusCode, string $defaultMessage): GuardResponse
     {
-        return $this->responseFactory->createResponse($defaultMessage, $statusCode);
+        $message = $this->config->customErrorResponses[$statusCode] ?? $defaultMessage;
+
+        return $this->responseFactory->createResponse($message, $statusCode);
     }
 
     protected function stashBlock(GuardRequest $request, string $reason, string $triggerInfo): void

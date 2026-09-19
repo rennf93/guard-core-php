@@ -100,6 +100,22 @@ final class SecurityConfig
     /** @var array<string, true> */
     public readonly array $logSensitiveBodyFields;
 
+    /** @var array<int, string> */
+    public readonly array $customErrorResponses;
+
+    /** @var list<string> */
+    public readonly array $emergencyWhitelist;
+
+    public readonly bool $emergencyMode;
+
+    public readonly bool $enforceHttps;
+
+    /** @var list<string> */
+    public readonly array $blockedUserAgents;
+
+    /** @var (\Closure(object, string): mixed)|null */
+    public readonly ?\Closure $authVerifier;
+
     /** @var (\Closure(object, array<string, mixed>): void)|null */
     public readonly ?\Closure $onBlock;
 
@@ -120,7 +136,10 @@ final class SecurityConfig
      * @param list<string> $logSensitiveParams
      * @param list<string> $logSensitiveBodyFields
      * @param (\Closure(object, array<string, mixed>): void)|null $onBlock
-     * @param list<string> $blockedUserAgents unsupported when non-empty
+     * @param list<string> $emergencyWhitelist
+     * @param array<int, string> $customErrorResponses per-status-code body overrides
+     * @param list<string> $blockedUserAgents regex patterns, subject truncated to 512 chars
+     * @param list<string> $blockedCountries unsupported when non-empty
      * @param list<string> $blockedCountries unsupported when non-empty
      * @param list<string> $whitelistCountries unsupported when non-empty
      * @param list<string> $blockCloudProviders unsupported when non-empty
@@ -156,12 +175,14 @@ final class SecurityConfig
         ?array $logSensitiveParams = null,
         ?array $logSensitiveBodyFields = null,
         ?\Closure $onBlock = null,
-        array $blockedUserAgents = [],
         array $blockedCountries = [],
         array $whitelistCountries = [],
         array $blockCloudProviders = [],
         ?bool $emergencyMode = null,
+        ?array $emergencyWhitelist = null,
         ?bool $enforceHttps = null,
+        ?array $customErrorResponses = null,
+        ?array $blockedUserAgents = null,
         ?bool $enableCors = null,
         ?bool $enableAgent = null,
         ?bool $enableDynamicRules = null,
@@ -210,21 +231,18 @@ final class SecurityConfig
         $this->logSensitiveParams = $this->validateSensitiveSet($logSensitiveParams, 'log_sensitive_params');
         $this->logSensitiveBodyFields = $this->validateSensitiveSet($logSensitiveBodyFields, 'log_sensitive_body_fields');
         $this->onBlock = $onBlock;
+        $this->customErrorResponses = $this->validateCustomErrorResponses($customErrorResponses ?? []);
+        $this->emergencyWhitelist = $this->validateIpCidrList($emergencyWhitelist ?? [], 'emergency_whitelist');
+        $this->emergencyMode = $emergencyMode ?? false;
+        $this->enforceHttps = $enforceHttps ?? false;
+        $this->blockedUserAgents = $this->validateBlockedUserAgents($blockedUserAgents ?? []);
+        $this->authVerifier = $authVerifier;
 
-        if ($blockedUserAgents !== []) {
-            throw new UnsupportedFeatureError('blocked_user_agents (user_agent check)');
-        }
         if ($blockedCountries !== [] || $whitelistCountries !== []) {
             throw new UnsupportedFeatureError('geo country blocking');
         }
         if ($blockCloudProviders !== []) {
             throw new UnsupportedFeatureError('cloud provider blocking');
-        }
-        if ($emergencyMode === true) {
-            throw new UnsupportedFeatureError('emergency_mode');
-        }
-        if ($enforceHttps === true) {
-            throw new UnsupportedFeatureError('enforce_https');
         }
         if ($enableCors === true) {
             throw new UnsupportedFeatureError('CORS');
@@ -238,9 +256,34 @@ final class SecurityConfig
         if ($customRequestCheck !== null) {
             throw new UnsupportedFeatureError('custom_request_check');
         }
-        if ($authVerifier !== null) {
-            throw new UnsupportedFeatureError('auth verifiers (authentication check)');
+    }
+
+    /** @param array<int, string> $map @return array<int, string> */
+    private function validateCustomErrorResponses(array $map): array
+    {
+        $out = [];
+        foreach ($map as $status => $message) {
+            if (!is_int($status) || !is_string($message)) {
+                throw new \InvalidArgumentException('custom_error_responses: map of int status => string body');
+            }
+            $out[$status] = $message;
         }
+
+        return $out;
+    }
+
+    /** @param list<string> $patterns @return list<string> */
+    private function validateBlockedUserAgents(array $patterns): array
+    {
+        $out = [];
+        foreach ($patterns as $pattern) {
+            if (!is_string($pattern) || $pattern === '') {
+                throw new \InvalidArgumentException('blocked_user_agents: patterns must be non-empty strings');
+            }
+            $out[] = $pattern;
+        }
+
+        return $out;
     }
 
     public function revision(): int
@@ -308,6 +351,12 @@ final class SecurityConfig
             'logSensitiveParams' => array_keys($this->logSensitiveParams),
             'logSensitiveBodyFields' => array_keys($this->logSensitiveBodyFields),
             'onBlock' => $this->onBlock,
+            'customErrorResponses' => $this->customErrorResponses,
+            'emergencyWhitelist' => $this->emergencyWhitelist,
+            'emergencyMode' => $this->emergencyMode,
+            'enforceHttps' => $this->enforceHttps,
+            'blockedUserAgents' => $this->blockedUserAgents,
+            'authVerifier' => $this->authVerifier,
         ];
     }
 
