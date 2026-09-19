@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Generate PHP data tables for guard-core-php from the reference implementation.
+
+Run from the guard-core-php repo root with the reference repo available:
+
+    GUARD_CORE_REF=/path/to/guard-core python3 tools/gen_tables.py
+
+Writes:
+    src/Support/Generated/PatternData.php
+    src/Support/Generated/UnicodeData.php
+    src/Support/Generated/HtmlEntities.php
+
+Committed outputs are normative for conformance; regenerate only when
+re-pinning a new spec version.
+"""
+
+import html.entities
+import json
+import os
+import sys
+import unicodedata
+
+REF = os.environ.get(
+    "GUARD_CORE_REF", os.path.join(os.pardir, os.pardir, "guard-core")
+)
+REF = os.path.abspath(REF)
+sys.path.insert(0, REF)
+
+import types
+import typing
+
+sys.modules.setdefault(
+    "typing_extensions",
+    types.ModuleType("typing_extensions") or typing,
+)
+sys.modules["typing_extensions"].__dict__.update(
+    {n: getattr(typing, n, object) for n in ("AsyncContextManager",)}
+)
+
+from guard_core.handlers._suspatterns_pattern_table import _PATTERN_DEFINITIONS  # noqa: E402
+from guard_core.handlers._suspatterns_shell_sources import (  # noqa: E402
+    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
+    _GLOB_WILDCARD_ATOM_RE,
+    _GLUED_BACKTICK_CANDIDATE_RE,
+    _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE,
+    _QUOTE_SPLICE_CANDIDATE_RE,
+)
+from guard_core.handlers._suspatterns_regex import (  # noqa: E402
+    _SCAN_WINDOW_BOUND_SOURCES,
+    _CANDIDATE_REJECTION_VALIDATORS,
+    DETECTION_PATTERN_WEIGHT_OVERRIDES,
+)
+from guard_core.handlers._suspatterns_ldap_ipv4 import (  # noqa: E402
+    _LEGACY_IPV4_HOST_RE,
+)
+from guard_core.handlers._suspatterns_shell_sources import (  # noqa: E402
+    _BRACE_EXPANSION_COMMAND_RE,
+    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
+    _GLOB_WILDCARD_ATOM_RE,
+    _GLUED_BACKTICK_CANDIDATE_RE,
+    _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE,
+    _QUOTE_SPLICE_CANDIDATE_RE,
+    DETECTION_RAW_VIEW_PATTERN_SOURCES,
+    DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES,
+)
+from guard_core.handlers._suspatterns_regex import (  # noqa: E402
+    _SCAN_WINDOW_BOUND_SOURCES,
+    _CANDIDATE_REJECTION_VALIDATORS,
+    DETECTION_PATTERN_WEIGHT_OVERRIDES,
+)
+from guard_core.handlers._suspatterns_sources import (  # noqa: E402
+    _LDAP_NULL_BYTE_ATTR_RE,
+    _LDAP_NULL_BYTE_DECODED_ATTR_RE,
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
+    _LDAP_WILDCARD_CHAIN_RE,
+    _LDAP_WILDCARD_EQUALS_RE,
+    _LDAP_PAREN_BREAKOUT_RE,
+    _LDAP_PAREN_CONJUNCTION_RE,
+    _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
+)
+from guard_core.handlers._suspatterns_matchers import (  # noqa: E402
+    _SQLI_LOAD_FILE_RE,
+    _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
+    _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+    _FILE_UPLOAD_TRUNCATION_RE,
+    _FILE_UPLOAD_DECODED_TRUNCATION_RE,
+    _TEMPLATE_CURLY_KEYWORD_RE,
+    _TEMPLATE_DOLLAR_BRACE_CALL_RE,
+    _TEMPLATE_CURLY_CALL_RE,
+    _TEMPLATE_PERCENT_KEYWORD_RE,
+    _TEMPLATE_ASP_KEYWORD_RE,
+)
+from guard_core.handlers._suspatterns_sources import (  # noqa: E402
+    _SSTI_HASH_BRACE_SHAPE_RE,
+)
+from guard_core.handlers._suspatterns_views import (  # noqa: E402
+    _PATH_TRAVERSAL_DECODED_SHAPE_RE,
+)
+
+OUT = os.path.join(os.path.dirname(__file__), os.pardir, "src", "Support", "Generated")
+os.makedirs(OUT, exist_ok=True)
+
+
+def php_str(s: str) -> str:
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "$":
+            out.append("\\$")
+        elif 0x20 <= o < 0x7F:
+            out.append(ch)
+        elif o < 0x100:
+            out.append("\\x%02x" % o)
+        elif o < 0x10000:
+            out.append("\\u{%04x}" % o)
+        else:
+            out.append("\\u{%x}" % o)
+    return '"' + "".join(out) + '"'
+
+
+MATCHER_NAMES = {
+    _SQLI_LOAD_FILE_RE: "load_file",
+    _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE: "cmd_dollar",
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE: "file_upload",
+    _FILE_UPLOAD_DOUBLE_EXTENSION_RE: "file_upload",
+    _FILE_UPLOAD_TRUNCATION_RE: "file_upload",
+    _FILE_UPLOAD_DECODED_TRUNCATION_RE: "file_upload",
+    _TEMPLATE_CURLY_KEYWORD_RE: "template_curly_keyword",
+    _TEMPLATE_DOLLAR_BRACE_CALL_RE: "template_dollar",
+    _TEMPLATE_CURLY_CALL_RE: "template_curly_call",
+    _TEMPLATE_PERCENT_KEYWORD_RE: "template_percent",
+    _TEMPLATE_ASP_KEYWORD_RE: "template_asp",
+    _SSTI_HASH_BRACE_SHAPE_RE: "template_hash",
+    _GLOB_WILDCARD_ATOM_RE: "glob",
+}
+
+FINDER_NAMES = {
+    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE: "shell_dash_c",
+    _LDAP_NULL_BYTE_ATTR_RE: "ldap_null_attr_raw",
+    _LDAP_NULL_BYTE_DECODED_ATTR_RE: "ldap_null_attr_decoded",
+    _QUOTE_SPLICE_CANDIDATE_RE: "quote_splice",
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE: "pickle_generic",
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE: "xml_public_dtd",
+}
+
+VALIDATOR_NAMES = {
+    _LEGACY_IPV4_HOST_RE: "legacy_ipv4",
+    _LDAP_WILDCARD_CHAIN_RE: "ldap_wildcard_chain",
+    _LDAP_WILDCARD_EQUALS_RE: "ldap_wildcard_chain",
+    _LDAP_PAREN_BREAKOUT_RE: "ldap_wildcard_chain",
+    _LDAP_PAREN_CONJUNCTION_RE: "ldap_paren_conjunction",
+    _GLUED_BACKTICK_CANDIDATE_RE: "glued_backtick",
+    _SENSITIVE_SOURCE_EXTENSION_PATH_RE: "source_extension_path",
+    _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE: "dollar_substitution",
+    _BRACE_EXPANSION_COMMAND_RE: "brace_expansion",
+    _QUOTE_SPLICE_CANDIDATE_RE: "quote_splice",
+    _GLOB_WILDCARD_ATOM_RE: "glob",
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE: "pickle_generic",
+}
+
+
+def gen_patterns() -> None:
+    lines = ["<?php", "", "declare(strict_types=1);", "", "namespace RenzoFranceschini\\GuardCore\\Support\\Generated;", "", "final class PatternData", "{", "    public const PATTERNS = ["]
+    for pattern, contexts, category in _PATTERN_DEFINITIONS:
+        ctx = ", ".join(php_str(c) for c in sorted(contexts))
+        lines.append(f"        [{php_str(pattern)}, [{ctx}], {php_str(category)}],")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const RAW_VIEW_SOURCES = [")
+    for s in sorted(DETECTION_RAW_VIEW_PATTERN_SOURCES):
+        lines.append(f"        {php_str(s)},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const URL_DECODED_VIEW_SOURCES = [")
+    for s in sorted(DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES):
+        lines.append(f"        {php_str(s)},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const SCAN_WINDOW_BOUNDS = [")
+    for source, pairs in _SCAN_WINDOW_BOUND_SOURCES.items():
+        rendered = ", ".join(f"[{php_str(p)}, {php_str(t)}]" for p, t in pairs)
+        lines.append(f"        {php_str(source)} => [{rendered}],")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const MATCHER_KINDS = [")
+    for source, name in MATCHER_NAMES.items():
+        lines.append(f"        {php_str(source)} => {php_str(name)},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const FINDER_KINDS = [")
+    for source, name in FINDER_NAMES.items():
+        lines.append(f"        {php_str(source)} => {php_str(name)},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const VALIDATOR_KINDS = [")
+    for source, name in VALIDATOR_NAMES.items():
+        lines.append(f"        {php_str(source)} => {php_str(name)},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const WEIGHT_OVERRIDES = [")
+    for source, weight in DETECTION_PATTERN_WEIGHT_OVERRIDES.items():
+        lines.append(f"        {php_str(source)} => {weight},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append(f"    public const DECODED_PATH_TRAVERSAL_RE = {php_str(_PATH_TRAVERSAL_DECODED_SHAPE_RE.pattern)};")
+    lines.append("}")
+    with open(os.path.join(OUT, "PatternData.php"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def gen_unicode() -> None:
+    nfd = {}
+    cclass = {}
+    comp = {}
+    last = 0x110000
+    for cp in range(last):
+        ch = chr(cp)
+        d = unicodedata.decomposition(ch)
+        if d and not d.startswith("<"):
+            full = unicodedata.normalize("NFD", ch)
+            if full != ch:
+                nfd[cp] = [ord(c) for c in full]
+            if len(full) == 2:
+                a, b = (ord(c) for c in full)
+                if unicodedata.normalize("NFC", full) == ch:
+                    comp[(a, b)] = cp
+        k = unicodedata.combining(ch)
+        if k:
+            cclass[cp] = k
+
+    def cclass_ranges() -> list[tuple[int, int, int]]:
+        keys = sorted(cclass)
+        ranges = []
+        start = prev = keys[0]
+        val = cclass[start]
+        for k in keys[1:]:
+            if k == prev + 1 and cclass[k] == val:
+                prev = k
+                continue
+            ranges.append((start, prev, val))
+            start = prev = k
+            val = cclass[k]
+        ranges.append((start, prev, val))
+        return ranges
+
+    lines = ["<?php", "", "declare(strict_types=1);", "", "namespace RenzoFranceschini\\GuardCore\\Support\\Generated;", "", "final class UnicodeData", "{", "    public const NFD = ["]
+    for cp in sorted(nfd):
+        seq = ", ".join("0x%x" % c for c in nfd[cp])
+        lines.append(f"        0x{cp:x} => [{seq}],")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const CCC = [")
+    for a, b, v in cclass_ranges():
+        lines.append(f"        [0x{a:x}, 0x{b:x}, {v}],")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const COMP = [")
+    for (a, b), cp in sorted(comp.items()):
+        lines.append(f"        0x{a:x}_0x{b:x} => 0x{cp:x},")
+    lines.append("    ];")
+    lines.append("}")
+    with open(os.path.join(OUT, "UnicodeData.php"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def gen_html() -> None:
+    lines = ["<?php", "", "declare(strict_types=1);", "", "namespace RenzoFranceschini\\GuardCore\\Support\\Generated;", "", "final class HtmlEntities", "{", "    public const HTML5 = ["]
+    for name in sorted(html.entities.html5):
+        lines.append(f"        {php_str(name)} => {php_str(html.entities.html5[name])},")
+    lines.append("    ];")
+    lines.append("}")
+    with open(os.path.join(OUT, "HtmlEntities.php"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+if __name__ == "__main__":
+    gen_patterns()
+    gen_unicode()
+    gen_html()
+    print("generated:", sorted(os.listdir(OUT)))
