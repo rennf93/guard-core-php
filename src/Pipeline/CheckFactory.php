@@ -7,11 +7,20 @@ namespace RenzoFranceschini\GuardCore\Pipeline;
 use RenzoFranceschini\GuardCore\Ban\IpBanManager;
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
 use RenzoFranceschini\GuardCore\Detection\SusPatterns;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\AuthenticationCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\EmergencyModeCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\HttpsEnforcementCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\IpSecurityCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\RateLimitCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\ReferrerCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\RequestSizeContentCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\RequiredHeadersCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\RouteConfigCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\SuspiciousActivityCheck;
-use RenzoFranceschini\GuardCore\Request\GuardResponseFactory;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\TimeWindowCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\UserAgentCheck;
 use RenzoFranceschini\GuardCore\RateLimit\RateLimitHandler;
+use RenzoFranceschini\GuardCore\Request\GuardResponseFactory;
 use RenzoFranceschini\GuardCore\Routing\RouteConfig;
 use RenzoFranceschini\GuardCore\Routing\RouteResolver;
 
@@ -41,6 +50,27 @@ final class CheckFactory
     ) {
     }
 
+    /**
+     * Spec 03 helpers.route_config_applies: when route_configs is null (no
+     * decorator registered) every route predicate is satisfied.
+     *
+     * @param list<RouteConfig>|null $routeConfigs
+     * @param \Closure(RouteConfig): bool $predicate
+     */
+    public static function routeConfigApplies(?array $routeConfigs, \Closure $predicate): bool
+    {
+        if ($routeConfigs === null) {
+            return true;
+        }
+        foreach ($routeConfigs as $routeConfig) {
+            if ($predicate($routeConfig)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<RouteConfig>|null $routeConfigs @return list<SecurityCheck> */
     public function buildChecks(SecurityConfig $config, ?array $routeConfigs = null): array
     {
@@ -58,6 +88,15 @@ final class CheckFactory
     private function buildOne(string $name, SecurityConfig $config): ?SecurityCheck
     {
         return match ($name) {
+            'route_config' => new RouteConfigCheck($config, $this->responseFactory, $this->routeResolver),
+            'emergency_mode' => new EmergencyModeCheck($config, $this->responseFactory),
+            'https_enforcement' => new HttpsEnforcementCheck($config, $this->responseFactory),
+            'request_size_content' => new RequestSizeContentCheck($config, $this->responseFactory),
+            'required_headers' => new RequiredHeadersCheck($config, $this->responseFactory),
+            'authentication' => new AuthenticationCheck($config, $this->responseFactory),
+            'referrer' => new ReferrerCheck($config, $this->responseFactory),
+            'time_window' => new TimeWindowCheck($config, $this->responseFactory),
+            'user_agent' => new UserAgentCheck($config, $this->responseFactory),
             'ip_security' => new IpSecurityCheck($config, $this->responseFactory, $this->ipBanManager, $this->routeResolver),
             'rate_limit' => new RateLimitCheck($config, $this->responseFactory, $this->rateLimitHandler, $this->routeResolver),
             'suspicious_activity' => new SuspiciousActivityCheck(
@@ -67,22 +106,7 @@ final class CheckFactory
                 $this->ipBanManager,
                 $this->routeResolver
             ),
-            default => new DeferredCheck($name, $config, $this->responseFactory, $this->deferredGate($name)),
+            default => new DeferredCheck($name, $config, $this->responseFactory),
         };
-    }
-
-    /**
-     * Construction-time gate for a deferred slot, per the spec 03 table. The
-     * enabling config fields belong to features this port does not implement;
-     * a supported SecurityConfig can never turn them on (config construction
-     * rejects them), so each gate resolves to false against the subset. If a
-     * future port extension makes a gate return true, DeferredCheck::check()
-     * fails closed with UnsupportedFeatureError.
-     *
-     * @return \Closure(SecurityConfig, list<RouteConfig>|null): bool
-     */
-    private function deferredGate(string $name): \Closure
-    {
-        return static fn (SecurityConfig $config, ?array $routeConfigs): bool => false;
     }
 }

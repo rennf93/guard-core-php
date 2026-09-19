@@ -177,14 +177,10 @@ $t->throws(InvalidArgumentException::class, fn () => new SecurityConfig(threatBa
 
 $t->section('config: unsupported features fail closed');
 $unsupported = [
-    'emergency_mode' => fn () => new SecurityConfig(emergencyMode: true),
-    'enforce_https' => fn () => new SecurityConfig(enforceHttps: true),
     'CORS' => fn () => new SecurityConfig(enableCors: true),
     'agent' => fn () => new SecurityConfig(enableAgent: true),
     'dynamic rules' => fn () => new SecurityConfig(enableDynamicRules: true),
     'custom_request_check' => fn () => new SecurityConfig(customRequestCheck: static fn ($r) => null),
-    'auth verifiers' => fn () => new SecurityConfig(authVerifier: static fn ($r, $c) => null),
-    'blocked_user_agents' => fn () => new SecurityConfig(blockedUserAgents: ['badbot']),
     'geo blocking' => fn () => new SecurityConfig(blockedCountries: ['CN']),
     'cloud blocking' => fn () => new SecurityConfig(blockCloudProviders: ['AWS']),
 ];
@@ -204,17 +200,17 @@ $t->section('factory: slot order and gating');
 $defaultConfig = new SecurityConfig();
 $builder = new CheckFactory($factory, new RouteResolver());
 $checks = $builder->buildChecks($defaultConfig);
-$t->same(['ip_security', 'rate_limit', 'suspicious_activity'], array_map(fn ($c) => $c->checkName(), $checks), 'default order: ip_security, rate_limit, suspicious_activity');
+$t->same(['route_config', 'https_enforcement', 'request_size_content', 'required_headers', 'authentication', 'referrer', 'time_window', 'ip_security', 'user_agent', 'rate_limit', 'suspicious_activity'], array_map(fn ($c) => $c->checkName(), $checks), 'default order (no decorator: route-gated slots construct)');
 $t->same(17, count(CheckFactory::DEFAULT_CHECK_NAMES), '17 pipeline slots present');
 $t->same(['block_cloud_providers', 'blocked_user_agents', 'endpoint_rate_limits'], CheckFactory::WATCHED_CONTAINER_FIELDS, 'watched container fields');
-$enforced = array_map(fn ($c) => $c->checkName(), array_filter($checks, fn ($c) => $c->enforcedOnExcludedPaths()));
-$t->same(['ip_security', 'rate_limit'], $enforced, 'exclusion-enforced implemented checks');
+$enforced = array_values(array_map(fn ($c) => $c->checkName(), array_filter($checks, fn ($c) => $c->enforcedOnExcludedPaths())));
+$t->same(['route_config', 'ip_security', 'rate_limit'], $enforced, 'exclusion-enforced implemented checks');
 $t->throws(UnsupportedFeatureError::class, function () use ($builder, $defaultConfig, $factory) {
     $deferred = new DeferredCheck('emergency_mode', $defaultConfig, $factory, static fn () => true);
     $deferred->check(makeRequest());
 }, 'deferred sentinel fails closed on check()');
 $noDetection = new SecurityConfig(enablePenetrationDetection: false, enableRateLimiting: false);
-$t->same(['ip_security'], array_map(fn ($c) => $c->checkName(), $builder->buildChecks($noDetection)), 'gating: only ip_security when rate limit + detection off');
+$t->same(['route_config', 'https_enforcement', 'request_size_content', 'required_headers', 'authentication', 'referrer', 'time_window', 'ip_security', 'user_agent'], array_map(fn ($c) => $c->checkName(), $builder->buildChecks($noDetection)), 'gating: rate_limit + suspicious_activity drop when rate limiting + detection off');
 
 $t->section('pipeline: order and short-circuit');
 $order = [];
