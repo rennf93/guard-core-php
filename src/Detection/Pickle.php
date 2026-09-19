@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RenzoFranceschini\GuardCore\Detection;
 
+use RenzoFranceschini\GuardCore\Support\Text;
+
 final class Pickle
 {
     private const WORK_BUDGET = 4096;

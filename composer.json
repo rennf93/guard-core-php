@@ -1,0 +1,21 @@
+{
+    "name": "rennf93/guard-core-php",
+    "description": "PHP port of guard-core: behavioral WAF engine (detection engine conformance milestone)",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "ext-pcre": "*",
+        "ext-mbstring": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "RenzoFranceschini\\GuardCore\\": "src/"
+        }
+    },
+    "scripts": {
+        "conformance": "php bin/conformance.php",
+        "lint": "for f in $(find src bin -name '*.php'); do php -l \"$f\" > /dev/null || exit 1; done && echo LINT_OK"
+    }
+}

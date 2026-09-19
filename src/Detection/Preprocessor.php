@@ -176,7 +176,17 @@ final class Preprocessor
                 $bytes .= chr((int) hexdec(substr($content, $i + 1, 2)));
                 $i += 3;
             } else {
-                $bytes .= $c;
+                $cp = ord($c);
+                if ($cp < 0x80) {
+                    $bytes .= $c;
+                    $i++;
+                    continue;
+                }
+                $n = $cp < 0xe0 ? 2 : ($cp < 0xf0 ? 3 : 4);
+                $seq = substr($content, $i, $n);
+                if (mb_check_encoding($seq, 'UTF-8') && strlen($seq) === $n) {
+                    $bytes .= $seq;
+                }
                 $i++;
             }
         }
@@ -186,12 +196,27 @@ final class Preprocessor
 
     private static function utf8DecodeIgnoring(string $bytes): string
     {
-        $decoded = @mb_convert_encoding($bytes, 'UTF-8', 'UTF-8');
-        if ($decoded === false) {
-            return '';
+        $out = '';
+        $len = strlen($bytes);
+        $i = 0;
+        while ($i < $len) {
+            $cp = ord($bytes[$i]);
+            if ($cp < 0x80) {
+                $out .= $bytes[$i];
+                $i++;
+                continue;
+            }
+            $n = $cp < 0xc0 ? 1 : ($cp < 0xe0 ? 2 : ($cp < 0xf0 ? 3 : 4));
+            $seq = $n === 1 ? '' : substr($bytes, $i, $n);
+            if ($n > 1 && strlen($seq) === $n && mb_check_encoding($seq, 'UTF-8')) {
+                $out .= $seq;
+                $i += $n;
+                continue;
+            }
+            $i++;
         }
 
-        return str_replace("\u{FFFD}", '', $decoded);
+        return $out;
     }
 
     public function htmlUnescape(string $content): string
@@ -281,7 +306,7 @@ final class Preprocessor
     public function decodeCommonEncodings(string $content, array &$decodeBudgetExhausted): string
     {
         $iterations = 0;
-        $gunzipLeft = Base64::MAX_GUNZIP_ATTEMPTS_PER_PASS;
+        $gunzipLeft = [Base64::MAX_GUNZIP_ATTEMPTS_PER_PASS];
         while ($iterations < self::MAX_DECODE_ITERATIONS) {
             $original = $content;
             $content = $this->decodeOverlongUtf8PercentRuns($content);

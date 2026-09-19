@@ -12,6 +12,7 @@ final class Preg
     {
         $translated = str_replace('\\Z', '\\z', $source);
         $delim = str_contains($translated, "\x01") ? "\x02" : "\x01";
+        $translated = '(*UCP)' . $translated;
 
         return $delim . $translated . $delim . 'u' . ($ignoreCase ? 'i' : '');
     }
@@ -21,7 +22,7 @@ final class Preg
         $m = [];
         $ok = @preg_match($pattern, $subject, $m, PREG_OFFSET_CAPTURE);
         if ($ok === false) {
-            throw new PregFailure();
+            throw new PregFailure(preg_last_error_msg());
         }
         if ($ok === 0) {
             return null;
@@ -54,7 +55,7 @@ final class Preg
         $m = [];
         $ok = @preg_match_all($pattern, $subject, $m, PREG_OFFSET_CAPTURE);
         if ($ok === false) {
-            throw new PregFailure();
+            throw new PregFailure(preg_last_error_msg());
         }
         if ($ok === 0) {
             return [];
@@ -96,7 +97,7 @@ final class Preg
         $m = [];
         $ok = @preg_match($anchored, $segment, $m, PREG_OFFSET_CAPTURE);
         if ($ok === false) {
-            throw new PregFailure();
+            throw new PregFailure(preg_last_error_msg());
         }
         if ($ok !== 1) {
             return null;
@@ -131,7 +132,7 @@ final class Preg
         $m = [];
         $ok = @preg_match(self::compile($source, $ignoreCase), $segment, $m, PREG_OFFSET_CAPTURE);
         if ($ok === false) {
-            throw new PregFailure();
+            throw new PregFailure(preg_last_error_msg());
         }
         if ($ok !== 1) {
             return null;
@@ -159,12 +160,27 @@ final class Preg
 
     public static function replace(string $source, string $subject, callable $fn, bool $ignoreCase = true): string
     {
+        $count = 0;
+
         return @preg_replace_callback(
             self::compile($source, $ignoreCase),
             static function (array $m) use ($fn): string {
-                return $fn(['text' => $m[0], 'start' => $m[1], 'end' => $m[1] + strlen($m[0]), 'groups' => []]);
+                $groups = [];
+                foreach ($m as $gi => $g) {
+                    if ($gi === 0) {
+                        continue;
+                    }
+                    $groups[$gi] = is_array($g)
+                        ? ['text' => $g[0], 'start' => $g[1], 'end' => $g[1] + strlen($g[0])]
+                        : null;
+                }
+
+                return $fn(['text' => $m[0][0], 'start' => $m[0][1], 'end' => $m[0][1] + strlen($m[0][0]), 'groups' => $groups]);
             },
-            $subject
+            $subject,
+            -1,
+            $count,
+            PREG_OFFSET_CAPTURE
         ) ?? $subject;
     }
 

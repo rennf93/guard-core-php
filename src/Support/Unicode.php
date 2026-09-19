@@ -66,7 +66,7 @@ final class Unicode
             while ($j > 0) {
                 $a = self::ccc(Text::ord($chars[$j - 1]));
                 $b = self::ccc(Text::ord($chars[$j]));
-                if ($a === 0 || $a <= $b) {
+                if ($b === 0 || $a === 0 || $a <= $b) {
                     break;
                 }
                 $tmp = $chars[$j - 1];

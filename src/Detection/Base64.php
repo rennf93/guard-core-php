@@ -67,14 +67,15 @@ final class Base64
         if ($raw === false) {
             return null;
         }
-        if (strlen($raw) >= 2 && substr($raw, 0, 2) === self::GZIP_MAGIC && $gunzipLeft > 0) {
-            $gunzipLeft--;
+        if (strlen($raw) >= 2 && substr($raw, 0, 2) === self::GZIP_MAGIC && $gunzipLeft[0] > 0) {
+            $gunzipLeft[0]--;
             $gunzipped = self::boundedGunzip($raw, $gunzipMax);
             if ($gunzipped !== null) {
                 $raw = $gunzipped;
             }
         }
         if (!mb_check_encoding($raw, 'UTF-8')) {
+            mb_substitute_character(0xfffd);
             $decoded = @mb_convert_encoding($raw, 'UTF-8', 'UTF-8');
             if ($decoded === false) {
                 return null;
@@ -91,6 +92,9 @@ final class Base64
 
         return null;
     }
+
+    private const SEPARATOR_CLASS = '\x00-\x08\x09-\x1f\x20-\x2a\x2c\x2e\x3a-\x40\x5b-\x5e\x60\x7b-\x7f';
+    private const WIDENED_CLASS = '\x00-\x08\x09-\x0c\x0e-\x1f\x20-\x2a\x2c\x2e\x3a-\x3c\x3e-\x40\x5b-\x5e\x60\x7b-\x7f_-';
 
     private static function decodeToken(string $token, float $minPrintableRatio, array &$gunzipLeft, int $gunzipMax): ?string
     {
@@ -129,7 +133,7 @@ final class Base64
     public static function decodeCandidates(string $content, array &$gunzipLeft, int $gunzipMax): string
     {
         $dataAlphabet = self::DATA_ALPHABET;
-        $sep = '[^\r\n=]|[^\x20-\x7e]';
+        $sep = '[' . self::SEPARATOR_CLASS . ']*';
         $runUnit = "[{$dataAlphabet}][{$sep}]*";
         $base64Re = '(?<![' . $dataAlphabet . '])(?:(?:' . $runUnit . '){' . self::MIN_RUN_LENGTH . ',}={0,2}|(?:' . $runUnit . '){' . (self::MIN_RUN_LENGTH - 1) . ',}=|(?:' . $runUnit . '){' . (self::MIN_RUN_LENGTH - 2) . ',}==)(?![' . $dataAlphabet . '=])';
         $runRe = '(?<![' . $dataAlphabet . '])[' . $dataAlphabet . ']{' . self::MIN_RUN_LENGTH . ',}={0,2}(?![' . $dataAlphabet . '=])';
@@ -138,7 +142,7 @@ final class Base64
 
         return Preg::replace($base64Re, $content, static function (array $m) use ($runRe, $subFloorRe, &$gunzipLeft, $gunzipMax): string {
             $token = $m['text'];
-            $primaryThreshold = preg_match('/[_-]|[^\x20-\x7e\r\n=]/', $token) === 1
+            $primaryThreshold = preg_match('/[' . self::WIDENED_CLASS . ']/', $token) === 1
                 ? self::FALLBACK_PRINTABLE_RATIO_THRESHOLD
                 : self::PRINTABLE_RATIO_THRESHOLD;
             $decoded = self::decodeToken($token, $primaryThreshold, $gunzipLeft, $gunzipMax);
