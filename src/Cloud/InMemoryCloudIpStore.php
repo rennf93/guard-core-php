@@ -12,8 +12,11 @@ final class InMemoryCloudIpStore implements CloudIpStore
     /** @var array<string, float> */
     private array $expiresAt = [];
 
-    public function __construct(private readonly \Closure $clock = static fn (): float => microtime(true))
+    private readonly \Closure $clock;
+
+    public function __construct(?\Closure $clock = null)
     {
+        $this->clock = $clock ?? static fn (): float => microtime(true);
     }
 
     public function get(string $provider): ?array

@@ -216,7 +216,7 @@ final class CloudFetchers
 
             return;
         }
-        $ageDays = (int) ((new \DateTimeImmutable('now', new \DateTimeZone('UTC'))->getTimestamp() - $date->getTimestamp()) / 86400);
+        $ageDays = (int) (((new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->getTimestamp() - $date->getTimestamp()) / 86400);
         if ($ageDays > self::AZURE_SERVICE_TAGS_STALE_WARNING_DAYS) {
             self::log('Selected Azure ServiceTags URL is ' . $ageDays . ' days old, possibly stale: ' . $url);
         }
