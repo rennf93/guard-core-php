@@ -33,15 +33,19 @@ final class CloudManager
     /** @var array<string, float> */
     private array $emptyRangesWarnedAt = [];
 
+    private readonly \Closure $clock;
+
     public function __construct(
         private readonly ?HttpClient $httpClient = null,
         ?CloudIpStore $store = null,
-        private readonly RequestLogger $logger = new SimpleRequestLogger()
+        private readonly RequestLogger $logger = new SimpleRequestLogger(),
+        ?\Closure $clock = null
     ) {
         $this->store = $store ?? new InMemoryCloudIpStore();
         $this->ipRanges = array_fill_keys(CloudProviderRegistry::PROVIDERS, []);
         $this->networkRegions = array_fill_keys(CloudProviderRegistry::PROVIDERS, []);
         $this->lastUpdated = array_fill_keys(CloudProviderRegistry::PROVIDERS, null);
+        $this->clock = $clock ?? static fn (): float => microtime(true);
     }
 
     public function setStore(?CloudIpStore $store): void
@@ -216,7 +220,7 @@ final class CloudManager
 
     private function warnEmptyRanges(string $provider): void
     {
-        $now = microtime(true);
+        $now = ($this->clock)();
         $warnedAt = $this->emptyRangesWarnedAt[$provider] ?? null;
         if ($warnedAt !== null && $now - $warnedAt < self::EMPTY_RANGES_WARNING_COOLDOWN) {
             return;

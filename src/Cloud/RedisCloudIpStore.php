@@ -39,7 +39,7 @@ final class RedisCloudIpStore implements CloudIpStore
     {
         $values = array_values($ranges);
         sort($values);
-        $payload = json_encode($values);
+        $payload = json_encode($values, JSON_UNESCAPED_SLASHES);
         if ($payload === false) {
             throw new \RuntimeException('cloud_ip_v2 payload encoding failed');
         }
