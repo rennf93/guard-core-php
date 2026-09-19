@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace RenzoFranceschini\GuardCore\Config;
 
+use RenzoFranceschini\GuardCore\Cloud\CloudProviderRegistry;
 use RenzoFranceschini\GuardCore\Ip\CanonicalIp;
 
 final class SecurityConfig
 {
     public const VALID_BYPASS_CHECKS = ['all', 'ip_ban', 'ip', 'clouds', 'rate_limit', 'penetration'];
+
+    public const CLOUD_IP_REFRESH_INTERVAL_MIN = 60;
+
+    public const CLOUD_IP_REFRESH_INTERVAL_MAX = 86400;
 
     public const CHECK_NAME_VALUES = [
         'route_config', 'emergency_mode', 'https_enforcement', 'request_logging',
@@ -117,6 +122,11 @@ final class SecurityConfig
     /** @var list<string> */
     public readonly array $blockedUserAgents;
 
+    /** @var list<string> */
+    public readonly array $blockCloudProviders;
+
+    public readonly int $cloudIpRefreshInterval;
+
     /** @var (\Closure(object, string): mixed)|null */
     public readonly ?\Closure $authVerifier;
 
@@ -148,9 +158,8 @@ final class SecurityConfig
      * @param array<int, string> $customErrorResponses per-status-code body overrides
      * @param list<string> $blockedUserAgents regex patterns, subject truncated to 512 chars
      * @param list<string> $blockedCountries unsupported when non-empty
-     * @param list<string> $blockedCountries unsupported when non-empty
      * @param list<string> $whitelistCountries unsupported when non-empty
-     * @param list<string> $blockCloudProviders unsupported when non-empty
+     * @param list<string> $blockCloudProviders selectors "Provider" or "Provider:!region", unknown provider names rejected
      */
     public function __construct(
         ?bool $enableRedis = null,
@@ -186,6 +195,7 @@ final class SecurityConfig
         array $blockedCountries = [],
         array $whitelistCountries = [],
         array $blockCloudProviders = [],
+        ?int $cloudIpRefreshInterval = null,
         ?bool $emergencyMode = null,
         ?array $emergencyWhitelist = null,
         ?bool $enforceHttps = null,
@@ -246,15 +256,17 @@ final class SecurityConfig
         $this->emergencyMode = $emergencyMode ?? false;
         $this->enforceHttps = $enforceHttps ?? false;
         $this->blockedUserAgents = $this->validateBlockedUserAgents($blockedUserAgents ?? []);
+        $this->blockCloudProviders = $this->validateBlockCloudProviders($blockCloudProviders);
+        $this->cloudIpRefreshInterval = max(
+            self::CLOUD_IP_REFRESH_INTERVAL_MIN,
+            min(self::CLOUD_IP_REFRESH_INTERVAL_MAX, $cloudIpRefreshInterval ?? 3600)
+        );
         $this->authVerifier = $authVerifier;
         $this->logSuspiciousLevel = $this->validateLogLevel($logSuspiciousLevel, 'log_suspicious_level', 'WARNING');
         $this->logRequestLevel = $this->validateLogLevel($logRequestLevel, 'log_request_level', null);
 
         if ($blockedCountries !== [] || $whitelistCountries !== []) {
             throw new UnsupportedFeatureError('geo country blocking');
-        }
-        if ($blockCloudProviders !== []) {
-            throw new UnsupportedFeatureError('cloud provider blocking');
         }
         if ($enableCors === true) {
             throw new UnsupportedFeatureError('CORS');
@@ -306,9 +318,39 @@ final class SecurityConfig
         return $out;
     }
 
+    /** @param list<string> $selectors @return list<string> */
+    private function validateBlockCloudProviders(array $selectors): array
+    {
+        $out = [];
+        foreach ($selectors as $selector) {
+            if (!is_string($selector)) {
+                throw new \InvalidArgumentException('block_cloud_providers: selectors must be strings');
+            }
+            $marker = strpos($selector, ':!');
+            $provider = $marker === false ? $selector : substr($selector, 0, $marker);
+            if (!in_array($provider, CloudProviderRegistry::PROVIDERS, true)) {
+                throw new \InvalidArgumentException(
+                    "block_cloud_providers: unknown cloud provider '{$provider}'. Valid: "
+                    . implode(', ', CloudProviderRegistry::PROVIDERS)
+                    . " (a bare name blocks the whole provider; suffix ':!region' to carve out a region exception)"
+                );
+            }
+            if (!in_array($selector, $out, true)) {
+                $out[] = $selector;
+            }
+        }
+
+        return $out;
+    }
+
     public function revision(): int
     {
         return $this->revision;
+    }
+
+    public function cloudBlockingEnabled(): bool
+    {
+        return $this->blockCloudProviders !== [];
     }
 
     /**
@@ -376,6 +418,8 @@ final class SecurityConfig
             'emergencyMode' => $this->emergencyMode,
             'enforceHttps' => $this->enforceHttps,
             'blockedUserAgents' => $this->blockedUserAgents,
+            'blockCloudProviders' => $this->blockCloudProviders,
+            'cloudIpRefreshInterval' => $this->cloudIpRefreshInterval,
             'authVerifier' => $this->authVerifier,
             'logSuspiciousLevel' => $this->logSuspiciousLevel,
             'logRequestLevel' => $this->logRequestLevel,

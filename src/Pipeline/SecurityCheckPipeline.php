@@ -67,7 +67,8 @@ final class SecurityCheckPipeline
         foreach (CheckFactory::WATCHED_CONTAINER_FIELDS as $field) {
             $signature[] = count(match ($field) {
                 'endpoint_rate_limits' => $config->endpointRateLimits,
-                'block_cloud_providers', 'blocked_user_agents' => [],
+                'block_cloud_providers' => $config->blockCloudProviders,
+                'blocked_user_agents' => $config->blockedUserAgents,
                 default => [],
             });
         }

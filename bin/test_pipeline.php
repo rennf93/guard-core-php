@@ -186,11 +186,11 @@ $unsupported = [
     'agent' => fn () => new SecurityConfig(enableAgent: true),
     'dynamic rules' => fn () => new SecurityConfig(enableDynamicRules: true),
     'geo blocking' => fn () => new SecurityConfig(blockedCountries: ['CN']),
-    'cloud blocking' => fn () => new SecurityConfig(blockCloudProviders: ['AWS']),
 ];
 foreach ($unsupported as $feature => $fn) {
     $t->throws(UnsupportedFeatureError::class, $fn, "enabling {$feature} throws UnsupportedFeatureError");
 }
+$t->same(['AWS'], (new SecurityConfig(blockCloudProviders: ['AWS']))->blockCloudProviders, 'cloud blocking un-gated (m4)');
 
 $t->section('config: revision on mutation');
 $config = new SecurityConfig();
@@ -204,7 +204,7 @@ $t->section('factory: slot order and gating');
 $defaultConfig = new SecurityConfig();
 $builder = new CheckFactory($factory, new RouteResolver());
 $checks = $builder->buildChecks($defaultConfig);
-$t->same(['route_config', 'https_enforcement', 'request_size_content', 'required_headers', 'authentication', 'referrer', 'custom_validators', 'time_window', 'ip_security', 'user_agent', 'rate_limit', 'suspicious_activity'], array_map(fn ($c) => $c->checkName(), $checks), 'default order (no decorator: route-gated slots construct)');
+$t->same(['route_config', 'https_enforcement', 'request_size_content', 'required_headers', 'authentication', 'referrer', 'custom_validators', 'time_window', 'cloud_ip_refresh', 'ip_security', 'cloud_provider', 'user_agent', 'rate_limit', 'suspicious_activity'], array_map(fn ($c) => $c->checkName(), $checks), 'default order (no decorator: route-gated + cloud slots construct)');
 $t->same(17, count(CheckFactory::DEFAULT_CHECK_NAMES), '17 pipeline slots present');
 $t->same(['block_cloud_providers', 'blocked_user_agents', 'endpoint_rate_limits'], CheckFactory::WATCHED_CONTAINER_FIELDS, 'watched container fields');
 $enforced = array_values(array_map(fn ($c) => $c->checkName(), array_filter($checks, fn ($c) => $c->enforcedOnExcludedPaths())));
@@ -214,7 +214,7 @@ $t->throws(UnsupportedFeatureError::class, function () use ($builder, $defaultCo
     $deferred->check(makeRequest());
 }, 'deferred sentinel fails closed on check()');
 $noDetection = new SecurityConfig(enablePenetrationDetection: false, enableRateLimiting: false);
-$t->same(['route_config', 'https_enforcement', 'request_size_content', 'required_headers', 'authentication', 'referrer', 'custom_validators', 'time_window', 'ip_security', 'user_agent'], array_map(fn ($c) => $c->checkName(), $builder->buildChecks($noDetection)), 'gating: rate_limit + suspicious_activity drop when rate limiting + detection off');
+$t->same(['route_config', 'https_enforcement', 'request_size_content', 'required_headers', 'authentication', 'referrer', 'custom_validators', 'time_window', 'cloud_ip_refresh', 'ip_security', 'cloud_provider', 'user_agent'], array_map(fn ($c) => $c->checkName(), $builder->buildChecks($noDetection)), 'gating: rate_limit + suspicious_activity drop when rate limiting + detection off');
 
 $t->section('pipeline: order and short-circuit');
 $order = [];

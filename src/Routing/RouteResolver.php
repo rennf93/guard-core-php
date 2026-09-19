@@ -33,4 +33,20 @@ final class RouteResolver
         return in_array($checkName, $routeConfig->bypassedChecks, true)
             || in_array('all', $routeConfig->bypassedChecks, true);
     }
+
+    /**
+     * @param list<string> $globalProviders
+     * @return list<string>|null
+     */
+    public function getCloudProvidersToCheck(?RouteConfig $routeConfig, array $globalProviders = []): ?array
+    {
+        if ($routeConfig !== null && $routeConfig->blockCloudProviders !== []) {
+            return $routeConfig->blockCloudProviders;
+        }
+        if ($globalProviders !== []) {
+            return $globalProviders;
+        }
+
+        return null;
+    }
 }
