@@ -46,7 +46,7 @@ return function (TestRunner $t): int {
     $t->ok(strlen($sha) === 40, 'SCRIPT LOAD returns sha1');
     $t->same(0, $conn->evalSha($sha, 1, 'k:evaluated'), 'EVALSHA');
 
-    $pipe = new RespPipeline($conn)->multi();
+    $pipe = (new RespPipeline($conn))->multi();
     $pipe->set('k:m', 'mv')->incr('k:mc')->get('k:m');
     $t->same(['OK', 1, 'mv'], $pipe->execute(), 'MULTI/EXEC over real socket');
 
