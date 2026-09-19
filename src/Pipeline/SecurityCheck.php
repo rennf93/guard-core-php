@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RenzoFranceschini\GuardCore\Pipeline;
 
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
+use RenzoFranceschini\GuardCore\Logging\RequestLogger;
+use RenzoFranceschini\GuardCore\Logging\SimpleRequestLogger;
 use RenzoFranceschini\GuardCore\Request\GuardRequest;
 use RenzoFranceschini\GuardCore\Request\GuardResponse;
 use RenzoFranceschini\GuardCore\Request\GuardResponseFactory;
@@ -12,10 +14,14 @@ use RenzoFranceschini\GuardCore\Routing\RouteConfig;
 
 abstract class SecurityCheck
 {
+    protected ?RequestLogger $logger;
+
     public function __construct(
         protected SecurityConfig $config,
-        protected GuardResponseFactory $responseFactory
+        protected GuardResponseFactory $responseFactory,
+        ?RequestLogger $logger = null
     ) {
+        $this->logger = $logger ?? new SimpleRequestLogger();
     }
 
     abstract public function checkName(): string;

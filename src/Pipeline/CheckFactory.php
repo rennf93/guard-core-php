@@ -8,11 +8,14 @@ use RenzoFranceschini\GuardCore\Ban\IpBanManager;
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
 use RenzoFranceschini\GuardCore\Detection\SusPatterns;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\AuthenticationCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\CustomRequestCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\CustomValidatorsCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\EmergencyModeCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\HttpsEnforcementCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\IpSecurityCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\RateLimitCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\ReferrerCheck;
+use RenzoFranceschini\GuardCore\Pipeline\Checks\RequestLoggingCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\RequestSizeContentCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\RequiredHeadersCheck;
 use RenzoFranceschini\GuardCore\Pipeline\Checks\RouteConfigCheck;
@@ -49,7 +52,6 @@ final class CheckFactory
         private readonly ?SusPatterns $susPatterns = null
     ) {
     }
-
     /**
      * Spec 03 helpers.route_config_applies: when route_configs is null (no
      * decorator registered) every route predicate is satisfied.
@@ -91,10 +93,12 @@ final class CheckFactory
             'route_config' => new RouteConfigCheck($config, $this->responseFactory, $this->routeResolver),
             'emergency_mode' => new EmergencyModeCheck($config, $this->responseFactory),
             'https_enforcement' => new HttpsEnforcementCheck($config, $this->responseFactory),
+            'request_logging' => new RequestLoggingCheck($config, $this->responseFactory),
             'request_size_content' => new RequestSizeContentCheck($config, $this->responseFactory),
             'required_headers' => new RequiredHeadersCheck($config, $this->responseFactory),
             'authentication' => new AuthenticationCheck($config, $this->responseFactory),
             'referrer' => new ReferrerCheck($config, $this->responseFactory),
+            'custom_validators' => new CustomValidatorsCheck($config, $this->responseFactory),
             'time_window' => new TimeWindowCheck($config, $this->responseFactory),
             'user_agent' => new UserAgentCheck($config, $this->responseFactory),
             'ip_security' => new IpSecurityCheck($config, $this->responseFactory, $this->ipBanManager, $this->routeResolver),
@@ -106,6 +110,7 @@ final class CheckFactory
                 $this->ipBanManager,
                 $this->routeResolver
             ),
+            'custom_request' => new CustomRequestCheck($config, $this->responseFactory),
             default => new DeferredCheck($name, $config, $this->responseFactory),
         };
     }
