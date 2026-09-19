@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RenzoFranceschini\GuardCore\Pipeline\Checks;
 
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
+use RenzoFranceschini\GuardCore\Pipeline\CheckFactory;
 use RenzoFranceschini\GuardCore\Pipeline\SecurityCheck;
 use RenzoFranceschini\GuardCore\Request\GuardRequest;
 use RenzoFranceschini\GuardCore\Request\GuardResponse;
@@ -27,8 +28,7 @@ final class TimeWindowCheck extends SecurityCheck
 
     public function appliesTo(SecurityConfig $config, ?array $routeConfigs): bool
     {
-        return $routeConfigs === null
-            || array_any($routeConfigs, fn (RouteConfig $rc): bool => $rc->timeRestrictions !== null && $rc->timeRestrictions !== []);
+        return CheckFactory::routeConfigApplies($routeConfigs, fn (RouteConfig $rc): bool => $rc->timeRestrictions !== null && $rc->timeRestrictions !== []);
     }
 
     public function check(GuardRequest $request): ?GuardResponse

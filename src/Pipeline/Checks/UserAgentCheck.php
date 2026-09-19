@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RenzoFranceschini\GuardCore\Pipeline\Checks;
 
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
+use RenzoFranceschini\GuardCore\Pipeline\CheckFactory;
 use RenzoFranceschini\GuardCore\Pipeline\SecurityCheck;
 use RenzoFranceschini\GuardCore\Request\GuardRequest;
 use RenzoFranceschini\GuardCore\Request\GuardResponse;
@@ -39,8 +40,7 @@ final class UserAgentCheck extends SecurityCheck
             return true;
         }
 
-        return $routeConfigs === null
-            || array_any($routeConfigs, fn (RouteConfig $rc): bool => $rc->blockedUserAgents !== []);
+        return CheckFactory::routeConfigApplies($routeConfigs, fn (RouteConfig $rc): bool => $rc->blockedUserAgents !== []);
     }
 
     public function check(GuardRequest $request): ?GuardResponse
