@@ -14,6 +14,29 @@ final class SusPatterns
     private const COMPILER_TIMEOUT = 2.0;
     private const MAX_CONTENT_LENGTH = 10000;
 
+    /**
+     * Subject-size gate for the size-gated line-walk pattern family
+     * (PatternData::SIZE_GATED_PATTERN_INDICES). Those patterns anchor at \A
+     * and walk the subject (per character, or per path segment), so PCRE2
+     * consumes JIT stack proportional to the walked line and a long enough
+     * single-line subject exhausts the stack, aborting detection of benign
+     * traffic with a PregFailure (fail-secure turns that into a 500).
+     * Measured on php:8.3-cli with stock ini, pcre.jit=1: the line-walk shapes
+     * fail from ~24.5KB subjects, the \A-anchored path-walk segment loops fail
+     * from ~16.4KB subjects once a trailing target follows ~16KB of path
+     * segments ("a/" repeated, 2 bytes per walked segment, is the
+     * stack-densest input), which is the binding cliff at 16392 bytes.
+     * Under pcre.jit=0 the same shapes fail from ~100KB
+     * (PREG_RECURSION_LIMIT_ERROR). 15360 (15 KiB) sits ~6% below the
+     * segment-loop cliff, so the gate holds under either pcre.jit setting and
+     * no view subject that can still exhaust the stack reaches a gated preg
+     * call, while staying above the largest frozen conformance corpus content
+     * (14725 bytes), so no corpus outcome changes. Walk and segment patterns
+     * are line-scoped, so skipping above the gate only forgoes their coverage
+     * on very long single-line subjects; all other patterns still scan.
+     */
+    public const GATED_PATTERN_MAX_SUBJECT_BYTES = 15360;
+
     private const LDAP_NULL_BYTE_ATTR_TAIL = '\\*\\)+(?:%00|\\\\u0000|\\\\x00|\\\\0|\\x00)';
     private const LDAP_NULL_BYTE_DECODED_ATTR_TAIL = '\\*\\)+\\x00';
 
@@ -201,6 +224,18 @@ final class SusPatterns
         return null;
     }
 
+    /**
+     * Byte length of the first line of $content. The size-gated patterns
+     * anchor at \A and their walks stop at the first newline, so this is the
+     * subject length that drives their PCRE2 stack consumption.
+     */
+    private static function firstLineByteLength(string $content): int
+    {
+        $nl = strpos($content, "\n");
+
+        return $nl === false ? strlen($content) : $nl;
+    }
+
     private function checkRegexPatterns(string $content, string $context, string $viewMode): array
     {
         $threats = [];
@@ -211,12 +246,20 @@ final class SusPatterns
             ? $normalized . self::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX
             : $normalized;
         $skipFilter = $normalized === 'unknown' || $normalized === 'request_body';
+        $gatedLineBytes = self::firstLineByteLength($content);
 
-        foreach (PatternData::PATTERNS as [$source, $contexts, $category]) {
+        foreach (PatternData::PATTERNS as $index => [$source, $contexts, $category]) {
             if (self::patternExcludedFromView($source, $viewMode)) {
                 continue;
             }
             if (!$skipFilter && !in_array($normalized, $contexts, true)) {
+                continue;
+            }
+            // Gated = skip the preg call for this view/subject (no match
+            // contribution), never a failure: large subjects must complete
+            // detection instead of tripping PREG_JIT_STACKLIMIT_ERROR.
+            if ($gatedLineBytes >= self::GATED_PATTERN_MAX_SUBJECT_BYTES
+                && in_array($index, PatternData::SIZE_GATED_PATTERN_INDICES, true)) {
                 continue;
             }
             $start = microtime(true);

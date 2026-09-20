@@ -164,12 +164,64 @@ VALIDATOR_NAMES = {
     _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE: "pickle_generic",
 }
 
+# Indices into _PATTERN_DEFINITIONS of the size-gated pattern family. These are
+# the \A-anchored single-line patterns whose PCRE2 walk consumes JIT stack
+# proportional to the walked line, exhausting the stack on benign single-line
+# subjects (measured on php:8.3-cli, stock ini, pcre.jit=1):
+#   - line-walk shapes \A(?:(?!\n).)*<target>... and the keyword-lookahead
+#     double-walk variant \A(?=(?:(?!\n).)*<keyword>)\A... fail from ~24.5KB
+#     subjects (PREG_JIT_STACKLIMIT_ERROR);
+#   - \A-anchored path-walk segment loops \A[/\\]?(?:(?!<target>)[\w.\-~%]+[/\\])*
+#     (tempered or not) fail from ~16.4KB subjects: a trailing target after
+#     ~16KB of "a/" segments drives the loop to full walk depth. 2 bytes per
+#     walked segment is the stack-densest input, so ~16392 bytes is the family
+#     floor cliff.
+# Anchored siblings 41, 108, 118 and 129 were verified not to exhaust even at
+# the 262144-byte view cap with trailing targets and are not gated.
+# Under pcre.jit=0 the same shapes fail from ~100KB (PREG_RECURSION_LIMIT_ERROR).
+# The PHP runtime skips these preg calls once the view subject's first line
+# reaches SusPatterns::GATED_PATTERN_MAX_SUBJECT_BYTES (threshold below the
+# ~16.4KB segment-loop cliff), which makes the mitigation ini-independent.
+# Verified below against the expected shape so a future table re-pin cannot
+# silently re-point the indices.
+SIZE_GATED_PATTERN_INDICES = [
+    # line-walk family, ~24.5KB cliff
+    32, 33, 34, 35, 36, 102, 107, 110, 112, 115,
+    # \A-anchored path-walk segment loops, ~16.4KB cliff with trailing targets
+    101, 103, 104, 105, 106, 109, 111, 113, 114, 116, 117, 119, 121,
+    122, 123, 124, 125, 126, 128, 130, 131, 132, 133, 134, 135, 136,
+]
+SIZE_GATED_CATEGORIES = {"dir_traversal", "sensitive_file", "cms_probing", "recon"}
+
+
+def _verify_size_gated_indices() -> None:
+    line_walk_prefixes = (
+        "\\A(?:(?!\\n).)*",
+        "\\A(?=(?:(?!\\n).)*",
+    )
+    for i in SIZE_GATED_PATTERN_INDICES:
+        src, _contexts, category = _PATTERN_DEFINITIONS[i]
+        assert category in SIZE_GATED_CATEGORIES, (
+            f"size-gated pattern {i}: unexpected category {category!r}"
+        )
+        is_line_walk = src.startswith(line_walk_prefixes)
+        is_segment_loop = src.startswith("\\A[/")
+        assert is_line_walk or is_segment_loop, (
+            f"size-gated pattern {i}: unexpected shape {src[:80]!r}"
+        )
+
 
 def gen_patterns() -> None:
+    _verify_size_gated_indices()
     lines = ["<?php", "", "declare(strict_types=1);", "", "namespace RenzoFranceschini\\GuardCore\\Support\\Generated;", "", "final class PatternData", "{", "    public const PATTERNS = ["]
     for pattern, contexts, category in _PATTERN_DEFINITIONS:
         ctx = ", ".join(php_str(c) for c in sorted(contexts))
         lines.append(f"        [{php_str(pattern)}, [{ctx}], {php_str(category)}],")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const SIZE_GATED_PATTERN_INDICES = [")
+    for i in SIZE_GATED_PATTERN_INDICES:
+        lines.append(f"        {i},")
     lines.append("    ];")
     lines.append("")
     lines.append("    public const RAW_VIEW_SOURCES = [")
