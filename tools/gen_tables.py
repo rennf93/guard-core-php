@@ -215,24 +215,66 @@ def gen_patterns() -> None:
 
 
 def gen_unicode() -> None:
-    nfd = {}
-    cclass = {}
-    comp = {}
+    """Emit the normalization tables consumed by Support\\Unicode.
+
+    NFKC_DECOMP holds the *full* compatibility decomposition (NFKD) of every
+    codepoint whose NFKD differs from itself, so the runtime only needs one
+    table lookup per codepoint before canonical reordering and composition.
+    Hangul syllables (U+AC00..U+D7A3) are excluded because their decomposition
+    (and recomposition) is algorithmic.
+
+    COMP is the canonical composition pair table, keyed starter -> combining
+    character -> composite.  Pairs are derived the same way the previous
+    canonical-only generator did: take every two-way canonical decomposition
+    and keep it only when NFC of the decomposition round-trips back to the
+    original codepoint, which filters the composition exclusions implicitly.
+
+    WORK_RE covers every codepoint that can change an NFKC result: anything
+    with a decomposition, anything with a non-zero canonical combining class,
+    every second element of a composition pair, and the conjoining Hangul
+    V/T jamo (algorithmic composition seconds).  If a UTF-8 string matches
+    none of them it is already in NFKC form and the runtime can return it
+    byte-for-byte; the character class is emitted as merged ranges so the
+    runtime check is a single PCRE scan.
+
+    Generated with the CPython that carries the pinned UCD version:
+    Python 3.14.1 / unicodedata 16.0.0.
+    """
+    nfkc_decomp: dict[int, list[int]] = {}
+    cclass: dict[int, int] = {}
+    comp: dict[int, dict[int, int]] = {}
+    work: set[int] = set()
     last = 0x110000
     for cp in range(last):
+        if 0xD800 <= cp <= 0xDFFF:
+            continue
         ch = chr(cp)
-        d = unicodedata.decomposition(ch)
-        if d and not d.startswith("<"):
-            full = unicodedata.normalize("NFD", ch)
-            if full != ch:
-                nfd[cp] = [ord(c) for c in full]
-            if len(full) == 2:
-                a, b = (ord(c) for c in full)
-                if unicodedata.normalize("NFC", full) == ch:
-                    comp[(a, b)] = cp
         k = unicodedata.combining(ch)
         if k:
             cclass[cp] = k
+            work.add(cp)
+        if 0xAC00 <= cp <= 0xD7A3:
+            continue
+        nfkd = unicodedata.normalize("NFKD", ch)
+        if nfkd != ch:
+            nfkc_decomp[cp] = [ord(c) for c in nfkd]
+            work.add(cp)
+        d = unicodedata.decomposition(ch)
+        if d and not d.startswith("<"):
+            parts = d.split()
+            # Canonical two-way decomposition: the pair composes back to ch
+            # unless it is a composition exclusion, which the NFC round-trip
+            # on the pair itself filters out. (Checking NFC of the recursive
+            # NFD form instead would drop every two-level decomposition such
+            # as U+1E14, whose NFD is E, U+0304, U+0300.)
+            if len(parts) == 2:
+                a, b = (int(p, 16) for p in parts)
+                if unicodedata.normalize("NFC", chr(a) + chr(b)) == ch:
+                    comp.setdefault(a, {})[b] = cp
+                    work.add(b)
+    # Conjoining Hangul V (U+1160..U+11A7) and T (U+11A8..U+11FF) jamo can be
+    # absorbed by the algorithmic composition step.
+    work.update(range(0x1160, 0x1200))
 
     def cclass_ranges() -> list[tuple[int, int, int]]:
         keys = sorted(cclass)
@@ -249,9 +291,37 @@ def gen_unicode() -> None:
         ranges.append((start, prev, val))
         return ranges
 
-    lines = ["<?php", "", "declare(strict_types=1);", "", "namespace RenzoFranceschini\\GuardCore\\Support\\Generated;", "", "final class UnicodeData", "{", "    public const NFD = ["]
-    for cp in sorted(nfd):
-        seq = ", ".join("0x%x" % c for c in nfd[cp])
+    def work_ranges() -> list[tuple[int, int]]:
+        keys = sorted(work)
+        ranges = []
+        start = prev = keys[0]
+        for k in keys[1:]:
+            if k == prev + 1:
+                prev = k
+                continue
+            ranges.append((start, prev))
+            start = prev = k
+        ranges.append((start, prev))
+        return ranges
+
+    pattern_body = "".join(
+        f"\\x{{{a:x}}}" if a == b else f"\\x{{{a:x}}}-\\x{{{b:x}}}"
+        for a, b in work_ranges()
+    )
+
+    lines = [
+        "<?php",
+        "",
+        "declare(strict_types=1);",
+        "",
+        "namespace RenzoFranceschini\\GuardCore\\Support\\Generated;",
+        "",
+        "final class UnicodeData",
+        "{",
+        "    public const NFKC_DECOMP = [",
+    ]
+    for cp in sorted(nfkc_decomp):
+        seq = ", ".join("0x%x" % c for c in nfkc_decomp[cp])
         lines.append(f"        0x{cp:x} => [{seq}],")
     lines.append("    ];")
     lines.append("")
@@ -261,9 +331,12 @@ def gen_unicode() -> None:
     lines.append("    ];")
     lines.append("")
     lines.append("    public const COMP = [")
-    for (a, b), cp in sorted(comp.items()):
-        lines.append(f"        0x{a:x}_0x{b:x} => 0x{cp:x},")
+    for a in sorted(comp):
+        pairs = ", ".join(f"0x{b:x} => 0x{comp[a][b]:x}" for b in sorted(comp[a]))
+        lines.append(f"        0x{a:x} => [{pairs}],")
     lines.append("    ];")
+    lines.append("")
+    lines.append(f"    public const WORK_RE = '/[{pattern_body}]/u';")
     lines.append("}")
     with open(os.path.join(OUT, "UnicodeData.php"), "w") as f:
         f.write("\n".join(lines) + "\n")
