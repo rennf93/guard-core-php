@@ -1,0 +1,128 @@
+{
+ "description": "NFKC parity: realistic payloads (deterministic list, no RNG).",
+ "generator": "tools/gen_nfkc_fixtures.py",
+ "python": "3.14.1",
+ "unicodedata": "16.0.0",
+ "cases": [
+  [
+   "payload_00",
+   "na\u00efve caf\u00e9 r\u00e9sum\u00e9 \u2014 \u0438\u0442\u043e\u0433",
+   "na\u00efve caf\u00e9 r\u00e9sum\u00e9 \u2014 \u0438\u0442\u043e\u0433"
+  ],
+  [
+   "payload_01",
+   "\uff33\uff25\uff2c\uff25\uff23\uff34 \uff0a \uff26\uff32\uff2f\uff2d \uff55\uff53\uff45\uff52\uff53 \uff37\uff28\uff25\uff32\uff25 \uff4e\uff41\uff4d\uff45\uff1d\uff07\uff41\uff44\uff4d\uff49\uff4e\uff07",
+   "SELECT * FROM users WHERE name='admin'"
+  ],
+  [
+   "payload_02",
+   "\uff34\uff49\uff54\uff4c\uff45 \uff21\uff50\uff49",
+   "Title Api"
+  ],
+  [
+   "payload_03",
+   "\ufb01lter://\ufb02ower.shop/\ufb03?x=\ufb04",
+   "filter://flower.shop/ffi?x=ffl"
+  ],
+  [
+   "payload_04",
+   "\u212b ngstr\u00f6m \u2126 ohm \u212a Kelvin",
+   "\u00c5 ngstr\u00f6m \u03a9 ohm K Kelvin"
+  ],
+  [
+   "payload_05",
+   "\u2460\u2465\u2469 \u2163 \u00bd \u00b2 \u339c \u33a0 \u3314\u30e6\u30fc\u30b6\u30fc",
+   "1610 IV 1\u20442 2 mm cm2 \u30ad\u30ed\u30e6\u30fc\u30b6\u30fc"
+  ],
+  [
+   "payload_06",
+   "\ufdfa basmala",
+   "\u0635\u0644\u0649 \u0627\u0644\u0644\u0647 \u0639\u0644\u064a\u0647 \u0648\u0633\u0644\u0645 basmala"
+  ],
+  [
+   "payload_07",
+   "\ud835\udc46\ud835\udc50\ud835\udc52\ud835\udc51\ud835\udc62\ud835\udc51\ud835\udc56\ud835\udc53 \ud835\udc37\ud835\udc42\ud835\udc46",
+   "Scedudif DOS"
+  ],
+  [
+   "payload_08",
+   "e\u0301gal \u00e9gal \u0301 combining-first A\u030a\u0328",
+   "\u00e9gal \u00e9gal \u0301 combining-first \u0104\u030a"
+  ],
+  [
+   "payload_09",
+   "\uac00\u11a8\uac01 \ud55c\uad6d\uc5b4 \u1112\u1161\u11ab\u1103\u1161\u11bc\u110b\u1161\u11c2",
+   "\uac01\uac01 \ud55c\uad6d\uc5b4 \ud55c\ub2f9\uc55f"
+  ],
+  [
+   "payload_10",
+   "\u30d5\u30a9\u30eb\u30c0 \uff8c\uff9e\uff70\uff99\uff84\uff9e",
+   "\u30d5\u30a9\u30eb\u30c0 \u30d6\u30fc\u30eb\u30c9"
+  ],
+  [
+   "payload_11",
+   "width\u3000full space\u00a0nbsp\u200bzwsp\u200dzwj\ufeffbom\u00adshy",
+   "width full space nbsp\u200bzwsp\u200dzwj\ufeffbom\u00adshy"
+  ],
+  [
+   "payload_12",
+   "\ud83d\udc69\u200d\ud83d\udcbb emoji-zwj \ud83d\ude80\ud83d\udc4d",
+   "\ud83d\udc69\u200d\ud83d\udcbb emoji-zwj \ud83d\ude80\ud83d\udc4d"
+  ],
+  [
+   "payload_13",
+   "<scr\u0130pt>alert(1)</scr\u0130pt>",
+   "<scr\u0130pt>alert(1)</scr\u0130pt>"
+  ],
+  [
+   "payload_14",
+   "\uff1c\uff53\uff43\uff52\uff49\uff50\uff54\uff3e\uff1e\uff06\uff4f\uff4e",
+   "<script^>&on"
+  ],
+  [
+   "payload_15",
+   "\u2014 \u2013 \u2215 \u2216 \u2044 \u29f8 \uff0f \u01c0 \u037e",
+   "\u2014 \u2013 \u2215 \u2216 \u2044 \u29f8 / \u01c0 ;"
+  ],
+  [
+   "payload_16",
+   "SELECT \u25cb FROM t\u2081 WHERE x \u2260 7\u0662",
+   "SELECT \u25cb FROM t1 WHERE x \u2260 7\u0662"
+  ],
+  [
+   "payload_17",
+   "\u09ac\u09be\u0982\u09b2\u09be \u0c15\u0c4b\u0c1f\u0c4a\u0c32\u0c41 \u0d15\u0d4b\u0d1f\u0d4d\u0d1f\u0d4d",
+   "\u09ac\u09be\u0982\u09b2\u09be \u0c15\u0c4b\u0c1f\u0c4a\u0c32\u0c41 \u0d15\u0d4b\u0d1f\u0d4d\u0d1f\u0d4d"
+  ],
+  [
+   "payload_18",
+   "\u0f56\u0f7c\u0f51\u0f0b\u0f40\u0f66\u0f60\u0f72\u0f0d",
+   "\u0f56\u0f7c\u0f51\u0f0b\u0f40\u0f66\u0f60\u0f72\u0f0d"
+  ],
+  [
+   "payload_19",
+   "\u2028\u2029 line separators \u001c\u001d\u001e\u001f group separators",
+   "\u2028\u2029 line separators \u001c\u001d\u001e\u001f group separators"
+  ],
+  [
+   "payload_20",
+   "\u0000\u0001\u0002\u007f\u0080\u009f controls",
+   "\u0000\u0001\u0002\u007f\u0080\u009f controls"
+  ],
+  [
+   "payload_21",
+   "\ud835\udc00\ud835\udfd8\ud835\udfe1 plane1 math \ud840\udc00 plane2 CJK-B \ud83e\udd77",
+   "A09 plane1 math \ud840\udc00 plane2 CJK-B \ud83e\udd77"
+  ],
+  [
+   "payload_22",
+   "\u2ffc\u2ffd\u2ffe\u2fff ideographic description",
+   "\u2ffc\u2ffd\u2ffe\u2fff ideographic description"
+  ],
+  [
+   "payload_23",
+   "\u10ffFF \u10ffFE \u07ff \u0870 last-first-sentinel",
+   "\u10ffFF \u10ffFE \u07ff \u0870 last-first-sentinel"
+  ]
+ ]
+}

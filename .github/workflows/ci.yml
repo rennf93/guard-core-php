@@ -79,6 +79,9 @@ jobs:
       - name: conformance
         run: php bin/conformance.php
 
+      - name: test_nfkc
+        run: php bin/test_nfkc.php
+
   composer-audit:
     name: Composer audit
     runs-on: ubuntu-latest
