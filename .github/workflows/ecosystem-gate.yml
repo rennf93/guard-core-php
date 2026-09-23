@@ -1,0 +1,99 @@
+name: Ecosystem Gate
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      consumer_ref:
+        description: 'Consumer ref to test against: empty = default branch HEAD, or an explicit ref'
+        required: false
+        default: ''
+
+concurrency:
+  group: ecosystem-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  consumer-test:
+    name: ${{ matrix.consumer.repo }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        consumer:
+          - repo: rennf93/psr15-guard
+            path: psr15-guard
+            test: bin/test_psr15.php
+          - repo: rennf93/slim-guard
+            path: slim-guard
+            test: bin/test_slim.php
+          - repo: rennf93/laravel-guard
+            path: laravel-guard
+            test: bin/test_laravel.php
+          - repo: rennf93/symfony-guard
+            path: symfony-guard
+            test: bin/test_symfony.php
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout guard-core-php
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: guard-core-php
+          persist-credentials: false
+
+      - name: Checkout ${{ matrix.consumer.repo }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ matrix.consumer.repo }}
+          ref: ${{ github.event.inputs.consumer_ref }}
+          path: ${{ matrix.consumer.path }}
+
+      # No host PHP toolchain: composer:2 (composer over a PHP CLI image)
+      # installs the consumer suite and points its guard-core-php path
+      # repository at this checkout, then php:8.3-cli runs the suite.
+      - name: Install the consumer against this guard-core-php checkout
+        run: |
+          docker run --rm --network host \
+            -v "$PWD":/work -w /work \
+            -e CONSUMER_PATH=${{ matrix.consumer.path }} \
+            composer:2 sh -c '
+              set -e
+              cd "$CONSUMER_PATH"
+              composer install --no-interaction --no-progress
+              composer update --no-interaction --no-progress rennf93/guard-core-php
+            '
+
+      - name: Run the consumer test suite against this guard-core-php checkout
+        run: |
+          docker run --rm --network host \
+            -v "$PWD":/work -w /work \
+            -e REDIS_HOST=127.0.0.1 \
+            -e CONSUMER_PATH=${{ matrix.consumer.path }} \
+            -e CONSUMER_TEST=${{ matrix.consumer.test }} \
+            php:8.3-cli sh -c '
+              set -e
+              cd "$CONSUMER_PATH"
+              php "$CONSUMER_TEST"
+            '
