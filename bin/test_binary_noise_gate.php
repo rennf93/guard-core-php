@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RenzoFranceschini\GuardCore\Detection\BinaryPrefix;
+use RenzoFranceschini\GuardCore\Detection\Preg;
 use RenzoFranceschini\GuardCore\Detection\SusPatterns;
 use RenzoFranceschini\GuardCore\Support\Generated\PatternData;
 
@@ -279,9 +280,42 @@ foreach (NOISE_SEEDS as $seed) {
     }
 }
 SusPatterns::$binaryNoiseGateEnabled = true;
+// Sources whose shape requires a specific trigram/terminator run (e.g. the
+// SQLi comment terminator "'\n--") cannot be expected to occur in pure random
+// noise; their registry membership and suppression are covered by the
+// dedicated sections below (upstream commit f5d53ca5).
+$sqliCommentTerminatorSource = '\'\\s*(?:[\\);]+\\s*)?--|\'[\\);]*#(?:\\n|\\Z)';
+$trigramShapedSources = [$sqliCommentTerminatorSource => true];
 foreach (PatternData::NOISE_PRONE_PATTERN_SOURCES as $source) {
+    if (isset($trigramShapedSources[$source])) {
+        continue;
+    }
     $t->same(true, isset($matchedSources[$source]), 'noise-prone source fired on binary noise: ' . $source);
 }
+$t->same(true, in_array($sqliCommentTerminatorSource, PatternData::NOISE_PRONE_PATTERN_SOURCES, true), 'SQLi comment-terminator source stays in the noise-prone registry');
+
+$t->section('PDF comment line with SQLi terminator bytes not flagged (f5d53ca5 regression)');
+$pdfBinaryPrefix = "%PDF-1.4\n%\xc7\x8f\xa2\n7 0 obj\n<</Length 8 0 R/Filter /FlateDecode>>\nstream\n";
+$pdfBuffer = $pdfBinaryPrefix . substr(noiseBytes(11), 0, 2000);
+$pdfBuffer = substr_replace($pdfBuffer, "'\n--", 100, 4);
+assertNoThreat($t, detect($sus, replacementDecoded($pdfBuffer)), 'PDF comment line with SQLi terminator bytes');
+
+$t->section('ASCII SQLi comment terminator outside binary still detected');
+$asciiResult = detect($sus, "users?name=1=1' \n-- drop table users");
+$t->same(true, $asciiResult['is_threat'], 'ASCII SQLi comment terminator: threat detected');
+$sqliCategories = array_filter($asciiResult['threats'], static fn (array $th): bool => ($th['category'] ?? '') === 'sqli');
+$t->same(false, $sqliCategories === [], 'ASCII SQLi comment terminator: sqli category present');
+
+$t->section('SQLi comment-terminator source is noise gated');
+$denseNoise = mb_substr(replacementDecoded(noiseBytes(11)), 0, 200);
+$gatedContent = "abc \n' \n--" . $denseNoise;
+$gatedMatches = Preg::allMatches($sqliCommentTerminatorSource, $gatedContent);
+$t->same(false, $gatedMatches === [], 'comment-terminator pattern matches the fixture');
+$gatedPrefix = BinaryPrefix::build($gatedContent);
+$buildThreat = new ReflectionMethod(SusPatterns::class, 'buildRegexThreat');
+$buildThreat->setAccessible(true);
+$gatedThreat = $buildThreat->invoke($sus, $sqliCommentTerminatorSource, $gatedMatches[0], 'sqli', $gatedContent, 'request_body', $gatedPrefix);
+$t->same(null, $gatedThreat, 'binary-dense comment-terminator match is gated');
 
 echo "\npassed={$t->passed} failed={$t->failed}\n";
 exit($t->failed === 0 ? 0 : 1);
