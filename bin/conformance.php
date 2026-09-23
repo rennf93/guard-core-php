@@ -164,7 +164,7 @@ ini_set('memory_limit', '2G');
 
 $root = dirname(__DIR__);
 $runner = new ConformanceRunner(
-    $root . '/tests/Conformance/guard-core-spec-4.0.2/cases',
+    $root . '/tests/Conformance/guard-core-spec-4.0.3/cases',
     ConformanceRunner::loadKnownGaps($root . '/tests/Conformance/KNOWN_GAPS.md'),
 );
 exit($runner->run());
