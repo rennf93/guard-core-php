@@ -40,6 +40,14 @@ final class SusPatterns
     private const LDAP_NULL_BYTE_ATTR_TAIL = '\\*\\)+(?:%00|\\\\u0000|\\\\x00|\\\\0|\\x00)';
     private const LDAP_NULL_BYTE_DECODED_ATTR_TAIL = '\\*\\)+\\x00';
 
+    /**
+     * Test hook: disabling the gate mirrors the Python honesty test's
+     * monkeypatch of match_is_binary_dense to always False, proving the
+     * frozen noise-prone registry is minimal (every registered pattern
+     * really does fire on random binary noise when the gate is off).
+     */
+    public static bool $binaryNoiseGateEnabled = true;
+
     private Preprocessor $preprocessor;
     private float $semanticThreshold;
 
@@ -110,10 +118,21 @@ final class SusPatterns
         return $out;
     }
 
-    private function buildRegexThreat(string $source, array $match, string $category, string $content, string $validatorContext): ?array
+    private function buildRegexThreat(string $source, array $match, string $category, string $content, string $validatorContext, ?array $binaryPrefix): ?array
     {
         $kind = PatternData::VALIDATOR_KINDS[$source] ?? null;
         if ($kind !== null && !self::validatorAccepts($kind, $content, $match, $validatorContext, $source)) {
+            return null;
+        }
+
+        // Binary noise gate (guard-core 4.0.3): after the candidate rejection
+        // validators, discard matches from the noise-prone registry when the
+        // surrounding window is binary-content dense. Signature patterns are
+        // never gated.
+        if ($binaryPrefix !== null
+            && self::$binaryNoiseGateEnabled
+            && in_array($source, PatternData::NOISE_PRONE_PATTERN_SOURCES, true)
+            && BinaryPrefix::matchIsBinaryDense($binaryPrefix, $match['start'], $match['end'])) {
             return null;
         }
 
@@ -212,10 +231,10 @@ final class SusPatterns
         return Preg::allMatches($source, $content);
     }
 
-    private function firstAcceptedRegexThreat(string $source, string $content, string $category, string $validatorContext): ?array
+    private function firstAcceptedRegexThreat(string $source, string $content, string $category, string $validatorContext, ?array $binaryPrefix): ?array
     {
         foreach (self::matchesForPattern($source, $content) as $match) {
-            $threat = $this->buildRegexThreat($source, $match, $category, $content, $validatorContext);
+            $threat = $this->buildRegexThreat($source, $match, $category, $content, $validatorContext, $binaryPrefix);
             if ($threat !== null) {
                 return $threat;
             }
@@ -247,6 +266,9 @@ final class SusPatterns
             : $normalized;
         $skipFilter = $normalized === 'unknown' || $normalized === 'request_body';
         $gatedLineBytes = self::firstLineByteLength($content);
+        // Built once per scanned string (O(n)); the density query is O(1) per
+        // match (guard-core 4.0.3 binary noise gate).
+        $binaryPrefix = BinaryPrefix::build($content);
 
         foreach (PatternData::PATTERNS as $index => [$source, $contexts, $category]) {
             if (self::patternExcludedFromView($source, $viewMode)) {
@@ -263,7 +285,7 @@ final class SusPatterns
                 continue;
             }
             $start = microtime(true);
-            $threat = $this->firstAcceptedRegexThreat($source, $content, $category, $validatorContext);
+            $threat = $this->firstAcceptedRegexThreat($source, $content, $category, $validatorContext, $binaryPrefix);
             if ($threat === null && (microtime(true) - $start) >= 0.9 * self::COMPILER_TIMEOUT) {
                 $timeouts[] = $source;
             }

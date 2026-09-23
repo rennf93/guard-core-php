@@ -165,7 +165,7 @@ final class Matchers
     private static function ldapNullByteValueStart(string $text, int $starPos): int
     {
         $i = $starPos;
-        while ($i > 0 && preg_match('/(*UCP)[\\d\\w\\s]/u', Text::slice($text, self::cpIndexBefore($text, $i), 1)) === 1) {
+        while ($i > 0 && preg_match('/(*UCP)[\\d\\w\\s]/u', self::charAtByteOffset($text, self::cpIndexBefore($text, $i))) === 1) {
             $i = self::cpIndexBefore($text, $i);
         }
 
@@ -175,7 +175,7 @@ final class Matchers
     private static function ldapNullByteAttrNameStart(string $text, int $equalsPos): ?int
     {
         $i = $equalsPos;
-        while ($i > 0 && preg_match('/(*UCP)[\\w-]/u', Text::slice($text, self::cpIndexBefore($text, $i), 1)) === 1) {
+        while ($i > 0 && preg_match('/(*UCP)[\\w-]/u', self::charAtByteOffset($text, self::cpIndexBefore($text, $i))) === 1) {
             $i = self::cpIndexBefore($text, $i);
         }
         if ($i === $equalsPos || preg_match('/[a-zA-Z]/', $text[$i] ?? '') !== 1) {
@@ -195,6 +195,29 @@ final class Matchers
         return $byteOffset;
     }
 
+    /**
+     * Character at a byte offset. The walk helpers operate on byte offsets
+     * (PREG_OFFSET_CAPTURE, matchAnchoredAt, substr), while Text::slice is
+     * code-point-indexed; reading the character through Text::slice with a
+     * byte index silently read the wrong position on multi-byte subjects
+     * (binary bodies), so the walks misfired and matches were lost.
+     */
+    private static function charAtByteOffset(string $text, int $byteOffset): string
+    {
+        $byte = ord($text[$byteOffset]);
+        if ($byte >= 0xf0) {
+            $len = 4;
+        } elseif ($byte >= 0xe0) {
+            $len = 3;
+        } elseif ($byte >= 0xc0) {
+            $len = 2;
+        } else {
+            $len = 1;
+        }
+
+        return substr($text, $byteOffset, $len);
+    }
+
     public static function quoteSpliceFinditer(string $text, string $compiled): array
     {
         $n = strlen($text);
@@ -204,7 +227,7 @@ final class Matchers
             if ($quote['start'] < $lastEnd) {
                 continue;
             }
-            if ($quote['end'] >= $n || preg_match('/(*UCP)\\w/u', Text::slice($text, self::cpIndexAt($text, $quote['end']), 1)) !== 1) {
+            if ($quote['end'] >= $n || preg_match('/(*UCP)\\w/u', self::charAtByteOffset($text, self::cpIndexAt($text, $quote['end']))) !== 1) {
                 continue;
             }
             $wordStart = self::quoteSpliceWordStart($text, $quote['start']);
@@ -235,7 +258,7 @@ final class Matchers
     private static function quoteSpliceWordStart(string $text, int $pos): ?int
     {
         $i = $pos;
-        while ($i > 0 && preg_match('/(*UCP)\\w/u', Text::slice($text, self::cpIndexBefore($text, $i), 1)) === 1) {
+        while ($i > 0 && preg_match('/(*UCP)\\w/u', self::charAtByteOffset($text, self::cpIndexBefore($text, $i))) === 1) {
             $i = self::cpIndexBefore($text, $i);
         }
 

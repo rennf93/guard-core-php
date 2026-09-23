@@ -8,6 +8,46 @@ use RenzoFranceschini\GuardCore\Support\Text;
 
 final class Truncation
 {
+    /**
+     * Trim a byte slice so it stays valid UTF-8 on its own: drop leading
+     * continuation bytes (the tail of a character split by the cut) and an
+     * incomplete trailing sequence. Python truncates code point strings and
+     * always yields valid text; a raw byte-based substr would split
+     * multi-byte characters, and invalid UTF-8 downstream makes PCRE (u flag)
+     * fail, so every truncation piece is boundary-trimmed before use.
+     */
+    public static function trimPartialSequences(string $piece): string
+    {
+        $len = strlen($piece);
+        if ($len === 0) {
+            return '';
+        }
+        $start = 0;
+        while ($start < $len && $start < 3 && ord($piece[$start]) >= 0x80 && ord($piece[$start]) <= 0xbf) {
+            $start++;
+        }
+        if ($start === $len) {
+            return '';
+        }
+        $end = $len;
+        $back = $len - 1;
+        while ($back >= $start && ord($piece[$back]) >= 0x80 && ord($piece[$back]) <= 0xbf) {
+            $back--;
+        }
+        if ($back >= $start) {
+            $lead = ord($piece[$back]);
+            if ($lead >= 0xc2) {
+                $seqLen = $lead >= 0xf0 ? 4 : ($lead >= 0xe0 ? 3 : 2);
+                $available = $len - $back;
+                if ($available < $seqLen) {
+                    $end = $back;
+                }
+            }
+        }
+
+        return $start === 0 && $end === $len ? $piece : substr($piece, $start, $end - $start);
+    }
+
     public static function extractAttackRegions(string $content): array
     {
         $maxRegions = min(100, intdiv(10000, 100));
@@ -52,7 +92,8 @@ final class Truncation
         $tail = min(Preprocessor::FULL_SCAN_TAIL_BYTES, $cap);
         $headLen = $cap - $tail;
 
-        return substr($content, 0, $headLen) . substr($content, -$tail);
+        return self::trimPartialSequences(substr($content, 0, $headLen))
+            . self::trimPartialSequences(substr($content, -$tail));
     }
 
     public static function truncateSafely(string $content, Preprocessor $preprocessor): string
@@ -82,7 +123,7 @@ final class Truncation
         $remaining = $budget;
         foreach ($attackRegions as [$start, $end]) {
             $chunkLen = min($end - $start, $remaining);
-            $result .= substr($content, $start, $chunkLen);
+            $result .= self::trimPartialSequences(substr($content, $start, $chunkLen));
             $remaining -= $chunkLen;
             if ($remaining <= 0) {
                 break;
@@ -96,10 +137,10 @@ final class Truncation
     {
         $gapLen = $start - $lastEnd;
         if ($gapLen <= $gapBudget) {
-            return [substr($content, $lastEnd, $start - $lastEnd), $gapBudget - $gapLen];
+            return [self::trimPartialSequences(substr($content, $lastEnd, $start - $lastEnd)), $gapBudget - $gapLen];
         }
         $chunkLen = $gapBudget - 1;
-        $piece = $chunkLen > 0 ? substr($content, $lastEnd, $chunkLen) : '';
+        $piece = $chunkLen > 0 ? self::trimPartialSequences(substr($content, $lastEnd, $chunkLen)) : '';
 
         return [$piece . ' ', 0];
     }
@@ -118,13 +159,13 @@ final class Truncation
                 [$piece, $gapBudget] = self::consumeGap($content, $lastEnd, $start, $gapBudget);
                 $parts[] = $piece;
             }
-            $parts[] = substr($content, $start, $end - $start);
+            $parts[] = self::trimPartialSequences(substr($content, $start, $end - $start));
             $lastEnd = $end;
         }
         $contentLen = strlen($content);
         if ($lastEnd < $contentLen && $gapBudget > 0) {
             $tailLen = min($contentLen - $lastEnd, $gapBudget);
-            $parts[] = substr($content, $lastEnd, $tailLen);
+            $parts[] = self::trimPartialSequences(substr($content, $lastEnd, $tailLen));
         }
 
         return implode('', $parts);
