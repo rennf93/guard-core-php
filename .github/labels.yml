@@ -1,0 +1,119 @@
+- name: "area: detection"
+  color: "0E8A16"
+  description: "Touches src/Detection/ or src/Support/ (detectors, pattern tables, NFKC)"
+
+- name: "area: pipeline"
+  color: "0E8A16"
+  description: "Touches src/Pipeline/ (checks and the pipeline)"
+
+- name: "area: engine"
+  color: "0E8A16"
+  description: "Touches src/Engine/, src/Config/, or src/Routing/"
+
+- name: "area: redis"
+  color: "0E8A16"
+  description: "Touches src/Redis/ (RESP client and handler)"
+
+- name: "area: banning"
+  color: "0E8A16"
+  description: "Touches src/Ban/ (IP ban manager)"
+
+- name: "area: rate-limit"
+  color: "0E8A16"
+  description: "Touches src/RateLimit/"
+
+- name: "area: cloud"
+  color: "0E8A16"
+  description: "Touches src/Cloud/ (provider range blocking)"
+
+- name: "area: request"
+  color: "0E8A16"
+  description: "Touches src/Request/ or src/Ip/ (request model, client IP, canonicalization)"
+
+- name: "area: logging"
+  color: "0E8A16"
+  description: "Touches src/Logging/"
+
+- name: tests
+  color: "FBCA04"
+  description: "Test suite changes"
+
+- name: conformance
+  color: "FBCA04"
+  description: "Fixture-driven parity suite against the Python engine corpus"
+
+- name: examples
+  color: "F9D0C4"
+  description: "Example application changes"
+
+- name: documentation
+  color: "0075CA"
+  description: "Docs site, README, governance files"
+
+- name: ci
+  color: "5319E7"
+  description: "GitHub Actions workflows"
+
+- name: build
+  color: "BFD4F2"
+  description: "Composer packaging"
+
+- name: dependencies
+  color: "0366D6"
+  description: "composer.json or composer.lock changes"
+
+- name: bug
+  color: "D73A4A"
+  description: "Confirmed defect"
+
+- name: enhancement
+  color: "A2EEEF"
+  description: "Improvement to an existing feature"
+
+- name: security
+  color: "B60205"
+  description: "Security-related issue (use private reporting first!)"
+
+- name: "good-first-issue"
+  color: "7057FF"
+  description: "Approachable issue for new contributors"
+
+- name: "help-wanted"
+  color: "008672"
+  description: "Maintainers welcome external help"
+
+- name: pinned
+  color: "FEF2C0"
+  description: "Exempt from staleness automation"
+
+- name: "no-issue-activity"
+  color: "EEEEEE"
+  description: "Marked stale by automation"
+
+- name: "no-pr-activity"
+  color: "EEEEEE"
+  description: "Marked stale by automation"
+
+- name: "needs-summary"
+  color: "1D76DB"
+  description: "Trigger an AI-generated summary on this issue (auto-removed after run)"
+
+- name: "no-summary"
+  color: "EEEEEE"
+  description: "Suppress automated AI summaries on this issue"
+
+- name: "work-in-progress"
+  color: "FBCA04"
+  description: "PR is not ready for review"
+
+- name: blocked
+  color: "B60205"
+  description: "Blocked by an external dependency or upstream issue"
+
+- name: "breaking-change"
+  color: "B60205"
+  description: "PR contains a backward-incompatible change"
+
+- name: "no-issue"
+  color: "EEEEEE"
+  description: "Chore or dependency PR that does not need an issue"

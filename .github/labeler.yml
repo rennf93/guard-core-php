@@ -1,0 +1,91 @@
+"area: detection":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Detection/**
+          - src/Support/**
+
+"area: pipeline":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Pipeline/**
+
+"area: engine":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Engine/**
+          - src/Config/**
+          - src/Routing/**
+
+"area: redis":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Redis/**
+
+"area: banning":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Ban/**
+
+"area: rate-limit":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/RateLimit/**
+
+"area: cloud":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Cloud/**
+
+"area: request":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Request/**
+          - src/Ip/**
+
+"area: logging":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Logging/**
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/**
+          - 'bin/test_*.php'
+
+conformance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/Conformance/**
+          - bin/conformance.php
+
+examples:
+  - changed-files:
+      - any-glob-to-any-file:
+          - examples/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - mkdocs.yml
+          - README.md
+          - AGENTS.md
+          - LICENSE
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+
+build:
+  - changed-files:
+      - any-glob-to-any-file:
+          - composer.json
+          - composer.lock
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - composer.json
+          - composer.lock

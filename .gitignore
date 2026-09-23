@@ -1,4 +1,5 @@
 vendor/
+site/
 
 # Internal working notes (kept local, never distributed)
 KNOWN_GAPS.md

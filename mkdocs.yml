@@ -1,0 +1,27 @@
+site_name: guard-core-php
+site_description: API security core engine for PHP - detection, rate limiting, IP banning, and cloud provider blocking
+site_author: Renn F
+repo_url: https://github.com/rennf93/guard-core-php
+repo_name: rennf93/guard-core-php
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+  features:
+    - content.code.copy
+    - navigation.sections
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - tables
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+  - Configuration: configuration.md

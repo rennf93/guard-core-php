@@ -1,0 +1,45 @@
+name: Greetings
+
+on: [pull_request_target, issues]
+
+permissions: {}
+
+jobs:
+  greeting:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+    - uses: actions/first-interaction@1c4688942c71f71d4f5502a26ea67c331730fa4d # v3.1.0
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        issue_message: |
+            Thanks for opening your first issue on **guard-core-php**!
+
+            To help us triage quickly, please make sure your report includes:
+            - A clear reproduction (a short PHP snippet or failing test runner output is ideal)
+            - Output of `php -v` (the engine supports PHP 8.2, 8.3, and 8.4) and your `composer.json` platform requirements
+            - The engine version you depend on (pin a commit until the first tag) and your `composer.json` requires
+            - Redis configuration if relevant (guard-core-php uses Redis for distributed bans, rate limiting, and cloud IP ranges)
+
+            A few pointers:
+            - Scan [README.md](../blob/master/README.md) and the docs site for usage guidance.
+            - **Security vulnerability?** Do **not** open a public issue - please use GitHub's private vulnerability reporting.
+
+            Thanks again - a maintainer will be with you soon.
+        pr_message: |
+            Thanks for opening your first pull request on **guard-core-php**!
+
+            Quick checklist before review (most of these are enforced by CI, but worth a glance):
+            - [ ] The PR body says `Closes #N` for an open issue (the `issue-link` check enforces it); chores take the `no-issue` label
+            - [ ] The `php -l` sweep over `src` and `bin` reports nothing (`composer lint`)
+            - [ ] The `bin/` test runners pass (`test_state`, `test_ratelimit`, `test_pipeline`, `test_m3b`, `test_m3c`, `test_m4`, `test_nfkc`; the Redis-backed ones with `REDIS_HOST` set)
+            - [ ] `php bin/conformance.php` passes against the spec 4.0.2 fixture corpus
+            - [ ] `composer audit --locked` is clean (platform-only package: nothing to audit today)
+            - [ ] Detection verdicts, scores, or the NFKC tables were not hand-edited (generated fixtures and tables only change through the reference engine)
+            - [ ] If you touched a public API, updated the relevant page under `docs/`
+
+            See [README.md](../blob/master/README.md) for the detection limits and the conformance suite notes.
+
+            Welcome aboard - a maintainer will review shortly.
