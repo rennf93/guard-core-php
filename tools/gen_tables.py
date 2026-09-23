@@ -37,7 +37,10 @@ sys.modules["typing_extensions"].__dict__.update(
     {n: getattr(typing, n, object) for n in ("AsyncContextManager",)}
 )
 
-from guard_core.handlers._suspatterns_pattern_table import _PATTERN_DEFINITIONS  # noqa: E402
+from guard_core.handlers._suspatterns_pattern_table import (  # noqa: E402
+    _PATTERN_DEFINITIONS,
+    NOISE_PRONE_PATTERN_SOURCES,
+)
 from guard_core.handlers._suspatterns_shell_sources import (  # noqa: E402
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
     _GLOB_WILDCARD_ATOM_RE,
@@ -222,6 +225,11 @@ def gen_patterns() -> None:
     lines.append("    public const SIZE_GATED_PATTERN_INDICES = [")
     for i in SIZE_GATED_PATTERN_INDICES:
         lines.append(f"        {i},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const NOISE_PRONE_PATTERN_SOURCES = [")
+    for s in sorted(NOISE_PRONE_PATTERN_SOURCES):
+        lines.append(f"        {php_str(s)},")
     lines.append("    ];")
     lines.append("")
     lines.append("    public const RAW_VIEW_SOURCES = [")

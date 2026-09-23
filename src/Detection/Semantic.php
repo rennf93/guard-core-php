@@ -36,20 +36,58 @@ final class Semantic
         if ($content === '') {
             return false;
         }
-        $n = Text::len($content);
+        // Single linear pass over bytes decoding UTF-8 manually (invalid
+        // bytes decode to U+FFFD, one code point per byte, mirroring the
+        // mbstring-based Text helpers). The previous per-code-point
+        // Text::slice/ord loop was O(n^2) through mb_strcut and burned
+        // minutes on binary bodies.
+        $n = strlen($content);
+        $total = 0;
         $nonText = 0;
-        for ($i = 0; $i < $n; $i++) {
-            $ch = Text::slice($content, $i, 1);
-            $cp = Text::ord($ch);
-            if ($cp === 9 || $cp === 10 || $cp === 13) {
-                continue;
+        $i = 0;
+        while ($i < $n) {
+            $byte = ord($content[$i]);
+            if ($byte < 0x80) {
+                $cp = $byte;
+                $size = 1;
+            } elseif ($byte >= 0xc2 && $byte <= 0xdf && $i + 1 < $n && self::isContinuationByte($content, $i + 1)) {
+                $cp = (($byte & 0x1f) << 6) | (ord($content[$i + 1]) & 0x3f);
+                $size = 2;
+            } elseif ($byte >= 0xe0 && $byte <= 0xef && $i + 2 < $n && self::isContinuationByte($content, $i + 1) && self::isContinuationByte($content, $i + 2)) {
+                $cp = (($byte & 0x0f) << 12) | ((ord($content[$i + 1]) & 0x3f) << 6) | (ord($content[$i + 2]) & 0x3f);
+                $size = 3;
+            } elseif ($byte >= 0xf0 && $byte <= 0xf4 && $i + 3 < $n && self::isContinuationByte($content, $i + 1) && self::isContinuationByte($content, $i + 2) && self::isContinuationByte($content, $i + 3)) {
+                $cp = (($byte & 0x07) << 18) | ((ord($content[$i + 1]) & 0x3f) << 12) | ((ord($content[$i + 2]) & 0x3f) << 6) | (ord($content[$i + 3]) & 0x3f);
+                $size = 4;
+            } else {
+                $cp = 0xfffd;
+                $size = 1;
             }
-            if (!Text::isprintableCp($cp) || $cp === 0xfffd) {
+            if ($size === 2 && $cp < 0x80) {
+                $cp = 0xfffd;
+            }
+            if ($size === 3 && ($cp < 0x800 || ($cp >= 0xd800 && $cp <= 0xdfff))) {
+                $cp = 0xfffd;
+            }
+            if ($size === 4 && ($cp < 0x10000 || $cp > 0x10ffff)) {
+                $cp = 0xfffd;
+            }
+            $total++;
+            if ($cp !== 9 && $cp !== 10 && $cp !== 13
+                && (!Text::isprintableCp($cp) || $cp === 0xfffd)) {
                 $nonText++;
             }
+            $i += $size;
         }
 
-        return $nonText / $n >= self::BINARY_CONTENT_RATIO_THRESHOLD;
+        return $nonText / $total >= self::BINARY_CONTENT_RATIO_THRESHOLD;
+    }
+
+    private static function isContinuationByte(string $content, int $i): bool
+    {
+        $byte = ord($content[$i]);
+
+        return $byte >= 0x80 && $byte <= 0xbf;
     }
 
     private static function tagScanWindow(string $content): string
