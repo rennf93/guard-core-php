@@ -1,7 +1,37 @@
 # guard-core-php
 Guard Core PHP - API Security Core Engine for PHP language
 
+# guard-core-php
+
+Guard Core PHP: the API security core engine for PHP. A framework-agnostic port of the [guard-core](https://github.com/rennf93/guard-core) detection engine that powers the PHP adapters: [psr15-guard](https://github.com/rennf93/psr15-guard), [laravel-guard](https://github.com/rennf93/laravel-guard), [symfony-guard](https://github.com/rennf93/symfony-guard), and [slim-guard](https://github.com/rennf93/slim-guard).
+
+Docs: https://rennf93.github.io/guard-core-php/
+
+## Install
+
+```bash
+composer require rennf93/guard-core-php:^4.0.4
+```
+
+Requires PHP `^8.2` with `ext-pcre`, `ext-mbstring`, and `ext-json`. The engine is consumed through the adapter packages or driven directly:
+
+```php
+use RenzoFranceschini\GuardCore\Config\SecurityConfig;
+use RenzoFranceschini\GuardCore\Engine\GuardEngine;
+
+$config = new SecurityConfig(
+    enableRedis: false,
+    blacklist: ['192.0.2.0/24'],
+    rateLimit: 100,
+    rateLimitWindow: 60,
+    enableRateLimiting: true,
+);
+
+$engine = new GuardEngine($config);
+```
+
 ## Detection limits
+
 
 ### Size-gated pattern family (large single-line subjects)
 
