@@ -7,9 +7,10 @@ declare(strict_types=1);
  * (interop/go_php_binary_vectors.py in the guard-core reference checkout).
  *
  * Reads a JSON vector list from the path in INTEROP_VECTORS_INPUT (each
- * vector: {"label": ..., "payload_b64": ...}; the payload bytes are the raw
- * request body bytes) and writes one verdict per vector to the path in
- * INTEROP_VECTORS_OUTPUT:
+ * vector: {"label": ..., "payload_b64": ...} with an optional "context"
+ * detect context, defaulting to "request_body:multipart_field"; the payload
+ * bytes are the raw request body bytes) and writes one verdict per vector to
+ * the path in INTEROP_VECTORS_OUTPUT:
  *
  *     {"label": ..., "is_threat": ..., "threat_score": ...,
  *      "threats": [{"category": ..., "pattern": ...}]}
@@ -88,7 +89,11 @@ foreach ($vectors as $vector) {
         fwrite(STDERR, "vector {$vector['label']} payload_b64 is not valid base64\n");
         exit(2);
     }
-    $result = $sus->detect(binaryVectorInvalidToReplacement($payload), '127.0.0.1', 'request_body:multipart_field');
+    $context = (string) ($vector['context'] ?? '');
+    if ($context === '') {
+        $context = 'request_body:multipart_field';
+    }
+    $result = $sus->detect(binaryVectorInvalidToReplacement($payload), '127.0.0.1', $context);
     $threats = [];
     foreach ($result['threats'] as $threat) {
         $threats[] = [
