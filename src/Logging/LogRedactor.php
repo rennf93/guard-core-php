@@ -198,7 +198,15 @@ final class LogRedactor
         return str_contains($text, '=');
     }
 
-    /** @param list<string> $sensitive */
+    /**
+     * JSON display redaction. A nesting depth cap trip collapses the whole
+     * value to '[REDACTED]' instead of emitting a huge half-redacted structure
+     * or falling through to pair redaction of raw text (guard-core 4.0.4,
+     * upstream commit 8bae9459). Malformed JSON still returns null so the
+     * XML/pair fallbacks in redactBlob keep working.
+     *
+     * @param list<string> $sensitive
+     */
     private static function redactJsonText(string $text, array $sensitive): ?string
     {
         if ($text === '' || ($text[0] !== '{' && $text[0] !== '[')) {
@@ -206,14 +214,22 @@ final class LogRedactor
         }
         try {
             $parsed = json_decode($text, true, 64, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
+        } catch (\JsonException $e) {
+            if ($e->getCode() === JSON_ERROR_DEPTH) {
+                return '[REDACTED]';
+            }
+
             return null;
         }
         if (!is_array($parsed)) {
             return null;
         }
         $changed = false;
-        $redacted = self::redactJsonTree($parsed, $sensitive, $changed);
+        $depthCapHit = false;
+        $redacted = self::redactJsonTree($parsed, $sensitive, $changed, $depthCapHit);
+        if ($depthCapHit) {
+            return '[REDACTED]';
+        }
         if (!$changed) {
             return null;
         }
@@ -221,10 +237,12 @@ final class LogRedactor
         return (string) json_encode($redacted, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
-    private static function redactJsonTree(mixed $value, array $sensitive, bool &$changed, int $depth = 0): mixed
+    private static function redactJsonTree(mixed $value, array $sensitive, bool &$changed, bool &$depthCapHit, int $depth = 0): mixed
     {
         if ($depth > 64) {
-            return null;
+            $depthCapHit = true;
+
+            return '[REDACTED]';
         }
         if (is_array($value)) {
             $out = [];
@@ -233,7 +251,7 @@ final class LogRedactor
                     $out[$key] = '[REDACTED]';
                     $changed = true;
                 } else {
-                    $out[$key] = self::redactJsonTree($child, $sensitive, $changed, $depth + 1);
+                    $out[$key] = self::redactJsonTree($child, $sensitive, $changed, $depthCapHit, $depth + 1);
                 }
             }
 

@@ -95,7 +95,7 @@ final class LogActivity
             $reasonMessage = 'Details: ' . $reason . ' - Headers: ' . self::headersSegment($context['headers']);
         }
 
-        return $details . ' - ' . $reasonMessage;
+        return LogSanitizer::sanitize($details . ' - ' . $reasonMessage);
     }
 
     /** @return array<string, string> */
