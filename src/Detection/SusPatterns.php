@@ -125,6 +125,20 @@ final class SusPatterns
             return null;
         }
 
+        // Recon leading-separator gate (guard-core, upstream commit 79818055):
+        // whole-value recon rows whose leading path separator is optional match
+        // bare words such as "default" or "README.md" outside a URL path.
+        // Reject the match unless the scanned value's normalized context is
+        // path-like (url_path, unknown) or the matched text itself starts with
+        // a path separator. Keyed on the context of the value actually being
+        // scanned (request_body/unknown skip the pattern-declared context
+        // filter elsewhere), after the candidate rejection validators and
+        // before the binary noise gate, like the Python engine.
+        if (in_array($source, PatternData::RECON_OPTIONAL_SEPARATOR_PATTERN_SOURCES, true)
+            && !self::reconPathValueIsProbe($match['text'], self::normalizeContext($validatorContext))) {
+            return null;
+        }
+
         // Binary noise gate (guard-core 4.0.3): after the candidate rejection
         // validators, discard matches from the noise-prone registry when the
         // surrounding window is binary-content dense. Signature patterns are
@@ -144,6 +158,22 @@ final class SusPatterns
             'category' => $category,
             'weight' => self::resolvePatternWeight($source, $category),
         ];
+    }
+
+    /**
+     * Port of _recon_path_value_is_probe: a match counts as a probe when the
+     * scanned value lives in a path-like context (url_path, unknown) or the
+     * matched text itself begins with a path separator. The context arrives
+     * already normalized plus the optional :embedded_json suffix, so it is
+     * normalized again to strip the suffix.
+     */
+    private static function reconPathValueIsProbe(string $matchedText, string $normalizedContext): bool
+    {
+        if (in_array($normalizedContext, ['url_path', 'unknown'], true)) {
+            return true;
+        }
+
+        return str_starts_with($matchedText, '/') || str_starts_with($matchedText, '\\');
     }
 
     private static function validatorAccepts(string $kind, string $content, array $match, string $context, string $source): bool
