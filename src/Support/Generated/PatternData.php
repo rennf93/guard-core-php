@@ -218,6 +218,26 @@ final class PatternData
         "\\w+(?:['\\\"]+\\w+){1,10}",
     ];
 
+    public const RECON_OPTIONAL_SEPARATOR_PATTERN_SOURCES = [
+        "\\A[/\\\\]?(?:(?!(?:HNAP1|IPCamDesc\\.xml|SDK/webLanguage)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:HNAP1|IPCamDesc\\.xml|SDK/webLanguage)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:\\.streamlit|\\.gpt-pilot|\\.aider|\\.cursor|\\.windsurf|\\.copilot|\\.devcontainer)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:\\.streamlit|\\.gpt-pilot|\\.aider|\\.cursor|\\.windsurf|\\.copilot|\\.devcontainer)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:actuator|server-status|telescope)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:actuator|server-status|telescope)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:docker-compose|Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)(?:\\.ya?ml)?(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:docker-compose|Dockerfile|Makefile|Vagrantfile|Jenkinsfile|Procfile)(?:\\.ya?ml)?(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:geoserver|confluence|nifi|ScadaBR|pandora_console|centreon|kylin|decisioncenter|evox|MagicInfo|metasys|officescan|helpdesk|ignite)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:geoserver|confluence|nifi|ScadaBR|pandora_console|centreon|kylin|decisioncenter|evox|MagicInfo|metasys|officescan|helpdesk|ignite)(?:[.\\-][\\w.\\-~%]*)?(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:language|languages)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:language|languages)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:readme\\.txt|README\\.md|CHANGELOG|pom\\.xml|build\\.gradle|appsettings\\.json|crossdomain\\.xml)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:readme\\.txt|README\\.md|CHANGELOG|pom\\.xml|build\\.gradle|appsettings\\.json|crossdomain\\.xml)(?:\\.[\\w.\\-~%]*)?(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!(?:sap|ise|nidp|cslu|rustfs|developmentserver|fog/management|lms/db|json/login_session|sms_mp|plugin/webs_model|wsman|am_bin)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*(?:sap|ise|nidp|cslu|rustfs|developmentserver|fog/management|lms/db|json/login_session|sms_mp|plugin/webs_model|wsman|am_bin)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?![\\w.\\-~%]*(?:secrets?|credentials?)\\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*[\\w.\\-~%]*(?:secrets?|credentials?)\\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!\\.(?:openclaw|clawdbot)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*\\.(?:openclaw|clawdbot)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!\\.git/(?:refs|index|HEAD|objects|logs)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*\\.git/(?:refs|index|HEAD|objects|logs)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!autodiscover(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*autodiscover(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!cgi-(?:bin|mod)(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*cgi-(?:bin|mod)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!dns-query(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*dns-query(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:(?!inicio\\.html?(?:[/\\\\]|\\Z))[\\w.\\-~%]+[/\\\\])*inicio\\.html?(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:[\\w.\\-~%]+[/\\\\])*[\\w.\\-~%]*\\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action|lua|inc|woa|nsf|esp)(?:[/\\\\][\\w.\\-~%]*)*(?:\\?\\S*)?\\s*\\Z",
+        "\\A[/\\\\]?(?:default|inicio|indice|localstart)(?:\\.[\\w.\\-~%]*)?(?:[/\\\\])?(?:\\?\\S*)?\\s*\\Z",
+    ];
+
     public const RAW_VIEW_SOURCES = [
         "#\\{(?![^\\}]*\\d{4}-\\d{1,2}-\\d{1,2}(?!\\d))(?=[^\\}]*(?:@[\\w.]+@|\\b\\w+\\s*\\(|['\\\"]?\\d+['\\\"]?\\s*[*/%+\\-]\\s*['\\\"]?\\d+['\\\"]?))[^\\}]*\\}",
         "'\\s*(?:[\\);]+\\s*)?--|'[\\);]*#(?:\\n|\\Z)",
