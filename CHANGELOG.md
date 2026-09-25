@@ -3,6 +3,17 @@
 Unreleased
 ----------
 
+Raw-view recon scan
+-------------------
+
+### Fixed
+
+- **Backslash-prefixed recon probes such as `\default` were invisible in every configured pipeline.** The preprocessor folds LDAP hex escapes (`\de` -> `Þ`) before the pattern tables run, so a query or body value like `\default` arrived at the recon rows as `Þfault` and matched nothing, and the recon-category rows were excluded from the raw-view pattern set, so the original value was never scanned against them either. The recon rows are now additionally scanned against the signal-preserving raw view (new `PatternData::RECON_RAW_VIEW_PATTERN_SOURCES`, emitted by `tools/gen_tables.py` from the reference table; view exclusion treats them as members of both the processed scans and the raw view), the #116 leading-separator gate applies to raw-view matches unchanged (bare words stay innocent in query and body contexts, separator-prefixed probes detect again, url_path and unknown are unchanged), and a (pattern, match text) deduplication on the raw-view merge keeps a row matching both views a single threat instead of doubling the threat score, with raw-view timeout sources deduplicated the same way (parity with guard-core `fix/raw-view-recon-scan`, upstream commit 81cf07f1; mirrors the Rust engine port in guard-core-rs). This resolves the `\default` divergence pinned by `bin/test_recon_context_gate.php`, which now asserts the probe as a member of `PROBE_PATHS`.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker): the eight `bin/` runners plus `bin/conformance.php` (184/184 vectors, verdicts unchanged), the new `bin/test_recon_raw_view_scan.php` honesty runner (77/77: probes detect in query_param/request_body/url_path through the configured `SuspiciousActivityCheck` pipeline, bare words stay innocent, double-view matches collapse to one, `\2fdefault` keeps single-hit decoded semantics), and `bin/test_recon_context_gate.php` at 141/141 with `\default` and `\report.asp` promoted from known divergence to probe.
+
 Text/plain block responses, console-safe log lines, and the recon leading-separator gate
 -----------------------------------------------------------------------------------------
 
