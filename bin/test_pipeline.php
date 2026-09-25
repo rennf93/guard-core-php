@@ -153,11 +153,16 @@ $t->same('payload', $request->body(), 'body cached second read');
 $t->same(1, $reads, 'body reader invoked exactly once');
 $response = $factory->createResponse('nope', 403);
 $t->same(403, $response->statusCode(), 'create_response status');
+$t->same('text/plain; charset=utf-8', $response->headers()->get('content-type'), 'body response declares text/plain content-type (fastapi-guard #144 parity)');
 $response->headers()->set('X-Test', '1');
 $t->same('1', $response->headers()->get('x-test'), 'response headers mutable + case-insensitive');
+$emptyBody = $factory->createResponse('', 204);
+$t->same(null, $emptyBody->headers()->get('content-type'), 'empty body carries no content-type');
+$t->same(null, $factory->createResponse()->headers()->get('content-type'), 'null body carries no content-type');
 $redirect = $factory->createRedirectResponse('https://example.com/login', 302);
 $t->same(302, $redirect->statusCode(), 'redirect status');
 $t->same('https://example.com/login', $redirect->headers()->get('location'), 'redirect Location header');
+$t->same(null, $redirect->headers()->get('content-type'), 'redirect carries no content-type');
 $headers = new RenzoFranceschini\GuardCore\Request\HeaderBag(['Content-Type' => 'text/plain']);
 $t->same('text/plain', $headers->get('CONTENT-TYPE'), 'request header bag case-insensitive');
 
