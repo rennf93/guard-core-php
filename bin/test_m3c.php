@@ -100,6 +100,16 @@ $blob = LogRedactor::redactBlob('a=1;password=zz&b=2');
 $t->same('a=1;password=[REDACTED]&b=2', $blob, 'pair redaction');
 $t->same('plain', LogRedactor::redactBlob('plain'), 'plain value untouched');
 
+$t->section('redaction: json depth cap collapses whole-value (guard-core 4.0.4 parity, upstream 8bae9459)');
+$deep = str_repeat('[', 80) . '{"password":"hunter2"}' . str_repeat(']', 80);
+$t->same('[REDACTED]', LogRedactor::redactBlob($deep), 'deep json past the cap redacts whole-value');
+$deepHeader = LogRedactor::redactHeaders(['X-Deep' => $deep]);
+$t->same('[REDACTED]', $deepHeader['X-Deep'], 'deep json header redacts whole-value');
+$t->same('[REDACTED]', LogRedactor::redactBlob(rawurlencode($deep)), 'percent-encoded deep json redacts whole-value');
+$shallow = str_repeat('[', 30) . '{"password":"x"}' . str_repeat(']', 30);
+$t->same(str_repeat('[', 30) . '{"password":"[REDACTED]"}' . str_repeat(']', 30), LogRedactor::redactBlob($shallow), 'nested json within the cap still tree-redacts');
+$t->same('{"password":"x"', LogRedactor::redactBlob('{"password":"x"'), 'malformed json still falls through to raw fallbacks');
+
 $t->section('log_activity: request logging');
 $logger = new SimpleRequestLogger();
 $config = new SecurityConfig(logRequestLevel: 'INFO');
@@ -121,6 +131,27 @@ $t->same(0, count($logger->records()), 'muted check log suppressed');
 $logger = new SimpleRequestLogger();
 LogActivity::log($request, $logger, new SecurityConfig(), logType: 'request', level: null, checkName: 'request_logging');
 $t->same(0, count($logger->records()), 'null level -> no log line');
+
+$t->section('log_activity: console-safe lines (guard-core 4.0.4 parity, upstream f5d53ca5)');
+$logger = new SimpleRequestLogger();
+$safeConfig = new SecurityConfig(logRequestLevel: 'INFO');
+$safeRequest = m3cRequest('/api/x', headers: [
+    'X-Probe' => "a\x01b\xc3\xa9c\xf0\x9f\xa6\x8a",
+    'X-Multi' => "line1\nline2\tend",
+    'X-Raw' => "\xc3(",
+], rawQuery: 'q=1', host: 'h');
+LogActivity::log($safeRequest, $logger, $safeConfig, logType: 'request', level: 'INFO', checkName: 'request_logging');
+$safeMessage = $logger->records()[0]['message'];
+$t->truthy(str_contains($safeMessage, 'x-probe=a\u0001b\u00e9c\u1f98a'), 'control char and unicode escaped as \uXXXX');
+$t->truthy(str_contains($safeMessage, 'x-multi=line1\nline2\tend'), 'newline and tab use the short escapes');
+$t->truthy(str_contains($safeMessage, 'x-raw=\xc3('), 'invalid utf-8 byte escaped as \xNN');
+$t->same(0, preg_match('/[\x00-\x1f\x7f]/', $safeMessage), 'no raw control characters in the line');
+$t->same(0, preg_match('/[\x80-\xff]/', $safeMessage), 'line is pure printable ASCII');
+
+$logger = new SimpleRequestLogger();
+$unsafeRequest = m3cRequest('/login', headers: ['X-Reason' => "trig\xc2\xa0ger"], rawQuery: 'password=hunter2');
+LogActivity::log($unsafeRequest, $logger, new SecurityConfig(), logType: 'suspicious', level: 'WARNING', reason: "custom\xc2\xa0fail", passiveMode: false, checkName: 'custom_validators');
+$t->same(0, preg_match('/[\x80-\xff]/', $logger->records()[0]['message']), 'suspicious line is pure ASCII too');
 
 $t->section('log_activity: suspicious + passive paths');
 $logger = new SimpleRequestLogger();
