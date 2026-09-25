@@ -56,6 +56,7 @@ function runPipelineIntegration(T $t): void
     $response = $pipeline->execute(integrationRequest('/anything', '40.1.1.1'));
     $t->same(403, $response?->statusCode(), 'redis ban -> 403 through pipeline');
     $t->same('IP address banned', $response?->body(), 'banned message end-to-end');
+    $t->same('text/plain; charset=utf-8', $response?->headers()?->get('content-type'), 'blocked 403 declares text/plain content-type');
     $t->same(null, $pipeline->execute(integrationRequest('/anything', '40.1.1.2')), 'unbanned IP allowed');
     $bans->unban('40.1.1.1');
     $t->same(null, $pipeline->execute(integrationRequest('/anything', '40.1.1.1')), 'unban clears block');
@@ -73,6 +74,7 @@ function runPipelineIntegration(T $t): void
     $response = $pipeline->execute(integrationRequest('/search', '42.1.1.1', ['q' => "<script>alert('xss')</script>"]));
     $t->same(400, $response?->statusCode(), 'penetration detected -> 400 through pipeline');
     $t->same('Suspicious activity detected', $response?->body(), 'suspicious message end-to-end');
+    $t->same('text/plain; charset=utf-8', $response?->headers()?->get('content-type'), 'blocked 400 declares text/plain content-type');
     $t->same(null, $pipeline->execute(integrationRequest('/search', '42.1.1.1', ['q' => 'safe'])), 'benign request allowed after');
 
     deleteOwnKeys($redis);
