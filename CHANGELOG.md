@@ -14,6 +14,18 @@ Raw-view recon scan
 
 - Full suite green on PHP 8.3 (Docker): the eight `bin/` runners plus `bin/conformance.php` (184/184 vectors, verdicts unchanged), the new `bin/test_recon_raw_view_scan.php` honesty runner (77/77: probes detect in query_param/request_body/url_path through the configured `SuspiciousActivityCheck` pipeline, bare words stay innocent, double-view matches collapse to one, `\2fdefault` keeps single-hit decoded semantics), and `bin/test_recon_context_gate.php` at 141/141 with `\default` and `\report.asp` promoted from known divergence to probe.
 
+Form and multipart body scanning with binary islands
+----------------------------------------------------
+
+### Added
+
+- **The suspicious-activity scan now extracts request bodies instead of scanning them as one raw value.** Urlencoded bodies scan as field pairs (the field name as a plain `request_body` component, each value with the `request_body:form_field` context), multipart bodies parse per RFC 2046 with the reference engine's observable semantics and scan as part entries (field label plus filename, part headers, payload, each with the `request_body:multipart_field context`), and a body that declares a boundary but carries none falls back to the raw blob scan. Values that parse as embedded JSON scan leaf-first with the `:embedded_json` context suffix, so the per-context gates in the pattern builder see the context of the value actually being scanned for the first time (the suffix was consumed but never produced before).
+- **Binary-dense multipart file-part payloads reduce to printable runs before pattern scanning.** A named file part whose binary artifact characters fill at least a fifth of it is reduced to printable runs of at least `detection_binary_min_run_length` (new `SecurityConfig` field, default 16, bounds [4, 1024]) scanned as individual values, so compressed or encrypted upload bytes stop producing attack-shaped matches whose rate grows with file size, while text genuinely embedded in an upload still scans in full; text uploads, short or mostly-text payloads, and whole-body fallback scans keep their full scan. New `BinaryIslands` and `BodyFormScan` detection classes mirror the reference `detection_engine/binary_islands.py` and `_utils/body_form_scan.py` (upstream commit 5f399234); the multipart parser was validated differentially against the reference engine's email parser on 481 hand-built and randomized bodies with identical parts, contexts and islands.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker): the eight `bin/` runners plus `bin/conformance.php` (184/184 vectors, verdicts unchanged), and the new `bin/test_body_form_scan.php` honesty runner (41/41: island unit shapes, config bounds, form-field sqli, multipart text/binary smuggling/noise cases, the min-run-length knob, embedded JSON leaves, name and filename scanning, and exact extraction contexts), verified red on master (the runner aborts on the missing extraction classes).
+
 Text/plain block responses, console-safe log lines, and the recon leading-separator gate
 -----------------------------------------------------------------------------------------
 

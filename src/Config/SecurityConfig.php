@@ -94,6 +94,8 @@ final class SecurityConfig
 
     public readonly float $detectionSemanticThreshold;
 
+    public readonly int $detectionBinaryMinRunLength;
+
     /** @var list<string> */
     public readonly array $excludePaths;
 
@@ -186,6 +188,7 @@ final class SecurityConfig
         ?bool $enablePenetrationDetection = null,
         ?array $enabledDetectionCategories = null,
         ?float $detectionSemanticThreshold = null,
+        ?int $detectionBinaryMinRunLength = null,
         ?array $excludePaths = null,
         ?array $mutedCheckLogs = null,
         ?array $logSensitiveHeaders = null,
@@ -244,6 +247,10 @@ final class SecurityConfig
         $this->detectionSemanticThreshold = $detectionSemanticThreshold ?? 0.7;
         if ($this->detectionSemanticThreshold < 0.0 || $this->detectionSemanticThreshold > 1.0) {
             throw new \InvalidArgumentException('detection_semantic_threshold must be within [0.0, 1.0]');
+        }
+        $this->detectionBinaryMinRunLength = $detectionBinaryMinRunLength ?? 16;
+        if ($this->detectionBinaryMinRunLength < 4 || $this->detectionBinaryMinRunLength > 1024) {
+            throw new \InvalidArgumentException('detection_binary_min_run_length must be within [4, 1024]');
         }
         $this->excludePaths = $this->validateExcludePaths($excludePaths ?? self::DEFAULT_EXCLUDE_PATHS);
         $this->mutedCheckLogs = $this->validateNameSet($mutedCheckLogs, self::CHECK_NAME_VALUES, 'muted_check_logs');
@@ -407,6 +414,7 @@ final class SecurityConfig
             'enablePenetrationDetection' => $this->enablePenetrationDetection,
             'enabledDetectionCategories' => array_keys($this->enabledDetectionCategories),
             'detectionSemanticThreshold' => $this->detectionSemanticThreshold,
+            'detectionBinaryMinRunLength' => $this->detectionBinaryMinRunLength,
             'excludePaths' => $this->excludePaths,
             'mutedCheckLogs' => array_keys($this->mutedCheckLogs),
             'logSensitiveHeaders' => array_keys($this->logSensitiveHeaders),
