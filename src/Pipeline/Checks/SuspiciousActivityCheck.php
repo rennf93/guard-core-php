@@ -6,6 +6,7 @@ namespace RenzoFranceschini\GuardCore\Pipeline\Checks;
 
 use RenzoFranceschini\GuardCore\Ban\IpBanManager;
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
+use RenzoFranceschini\GuardCore\Detection\BodyFormScan;
 use RenzoFranceschini\GuardCore\Detection\SusPatterns;
 use RenzoFranceschini\GuardCore\Pipeline\SecurityCheck;
 use RenzoFranceschini\GuardCore\Request\GuardRequest;
@@ -99,7 +100,20 @@ final class SuspiciousActivityCheck extends SecurityCheck
         return $this->createErrorResponse(400, 'Suspicious activity detected');
     }
 
-    /** @return list<array{string, string}> */
+    /**
+     * The request body is routed through the form/multipart extraction (port
+     * of guard_core/_utils/body_form_scan.py): urlencoded bodies scan as
+     * field name/value pairs with the request_body:form_field context,
+     * multipart bodies as part entries with the request_body:multipart_field
+     * context (binary-dense file payloads reduced to binary islands via
+     * detection_binary_min_run_length), and everything else as the one raw
+     * body. Values that parse as embedded JSON scan leaf-first with the
+     * :embedded_json context suffix, so the per-context gates in
+     * SusPatterns::buildRegexThreat see the context of the value actually
+     * being scanned.
+     *
+     * @return list<array{string, string}>
+     */
     private function scanValues(GuardRequest $request): array
     {
         $values = [[$request->urlPath(), 'url_path']];
@@ -117,7 +131,10 @@ final class SuspiciousActivityCheck extends SecurityCheck
         }
         $body = $request->body();
         if ($body !== '') {
-            $values[] = [$body, 'request_body'];
+            $contentType = $headers->get('content-type') ?? '';
+            foreach (BodyFormScan::bodyScanEntries($body, $contentType, $this->config->detectionBinaryMinRunLength) as [$content, $context]) {
+                $values[] = [$content, $context];
+            }
         }
 
         return $values;
