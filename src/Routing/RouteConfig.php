@@ -17,6 +17,9 @@ final class RouteConfig
     /** @var list<string> */
     public readonly array $blockCloudProviders;
 
+    /** @var array<string, array{limit: int, window: int}> */
+    public readonly array $geoRateLimits;
+
     /**
      * @param list<string> $bypassedChecks invalid names are silently dropped
      *     (decorator-time leniency); valid names update the config
@@ -24,6 +27,13 @@ final class RouteConfig
      * @param list<string> $blockCloudProviders selectors "Provider" or
      *     "Provider:!region"; unknown provider names are silently dropped
      *     (decorator-time leniency, mirroring @block_clouds)
+     * @param array<string, array{limit: int, window: int}> $geoRateLimits
+     *     country code ("DE") or the "*" fallback mapped to a limit/window
+     *     tier (mirroring @geo_rate_limit); malformed entries are silently
+     *     dropped (decorator-time leniency). WARNING: geo tiers only
+     *     activate when a country resolver is configured on the rate limit
+     *     handler (RateLimitHandler::setGeoResolver()); without one the geo
+     *     tier is inert and the default limit applies
      * @param array<string, string> $requiredHeaders
      * @param list<string>|null $allowedContentTypes
      * @param array<string, string>|null $timeRestrictions start/end (HH:MM),
@@ -37,6 +47,7 @@ final class RouteConfig
         array $bypassedChecks = [],
         public readonly ?int $rateLimit = null,
         public readonly ?int $rateLimitWindow = null,
+        array $geoRateLimits = [],
         public readonly bool $requireHttps = false,
         public readonly ?string $authRequired = null,
         public readonly array $blockedUserAgents = [],
@@ -58,6 +69,36 @@ final class RouteConfig
             fn (string $name): bool => in_array($name, SecurityConfig::VALID_BYPASS_CHECKS, true)
         ));
         $this->blockCloudProviders = self::validateBlockCloudProviders($blockCloudProviders);
+        $this->geoRateLimits = self::validateGeoRateLimits($geoRateLimits);
+    }
+
+    /**
+     * Country codes (or the "*" fallback) to {limit, window} tiers. Entries
+     * that are not a string key holding an int limit/window pair are
+     * silently dropped (decorator-time leniency, mirroring the other
+     * RouteConfig maps). Keys are matched verbatim against the resolver's
+     * country string; there is no case normalization (parity with the
+     * Python and Go engines).
+     *
+     * @param array<string, mixed> $geoRateLimits
+     * @return array<string, array{limit: int, window: int}>
+     */
+    private static function validateGeoRateLimits(array $geoRateLimits): array
+    {
+        $out = [];
+        foreach ($geoRateLimits as $country => $entry) {
+            if (!is_string($country) || !is_array($entry) || !isset($entry['limit'], $entry['window'])) {
+                continue;
+            }
+            $limit = $entry['limit'];
+            $window = $entry['window'];
+            if (!is_int($limit) || !is_int($window) || $limit < 1 || $window < 1) {
+                continue;
+            }
+            $out[$country] = ['limit' => $limit, 'window' => $window];
+        }
+
+        return $out;
     }
 
     /** @param list<string> $selectors @return list<string> */
@@ -93,6 +134,7 @@ final class RouteConfig
             'bypassedChecks' => $this->bypassedChecks,
             'rateLimit' => $this->rateLimit,
             'rateLimitWindow' => $this->rateLimitWindow,
+            'geoRateLimits' => $this->geoRateLimits,
             'requireHttps' => $this->requireHttps,
             'authRequired' => $this->authRequired,
             'blockedUserAgents' => $this->blockedUserAgents,
