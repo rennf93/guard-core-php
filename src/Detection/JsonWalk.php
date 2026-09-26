@@ -125,6 +125,12 @@ final class JsonWalk
                     foreach (self::walkEntries($inner, $context . self::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX, $excludedBodyFields) as $entry) {
                         $entries[] = $entry;
                     }
+                    // Clean-parse fall-through (embedded_json_scan.py +
+                    // _check_value_enhanced): when the nested walk reports
+                    // nothing, the raw leaf string still scans with the walk
+                    // context, so payloads confined to the raw text
+                    // (duplicate-key remnants, structural text) still hit.
+                    $entries[] = [$node, $context, null];
                     continue;
                 }
             }
