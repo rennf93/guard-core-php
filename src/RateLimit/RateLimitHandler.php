@@ -37,6 +37,16 @@ final class RateLimitHandler
     /** @var \Closure(string): string|null */
     private ?\Closure $geoResolver = null;
 
+    /**
+     * Country resolver (client ip => country code, '' when unknown). Geo
+     * route tiers (RateLimitRequest::$geoRateLimits) activate only when a
+     * resolver is configured: with no resolver the geo tier is inert and
+     * the default limit applies. Wire it after construction via
+     * setGeoResolver() (adapters reach the handler through the engine's
+     * rateLimitHandler() accessor) or by passing it as the constructor's
+     * fifth argument.
+     */
+
     /** @var array<string, list<float>> */
     private array $pipelineTimestamps = [];
 
@@ -53,7 +63,9 @@ final class RateLimitHandler
      * @param (\Closure(): float)|null $clock
      * @param (\Closure(string): void)|null $warn
      * @param (\Closure(): void)|null $onScriptReloaded
-     * @param (\Closure(string): string)|null $geoResolver
+     * @param (\Closure(string): string)|null $geoResolver country resolver;
+     *     geo route tiers stay inert (default limit applies) until one is
+     *     configured
      */
     public function __construct(
         private readonly RateLimitConfig $config,
@@ -65,6 +77,17 @@ final class RateLimitHandler
         $this->clock = $clock ?? static fn (): float => microtime(true);
         $this->warn = $warn;
         $this->onScriptReloaded = $onScriptReloaded;
+        $this->geoResolver = $geoResolver;
+    }
+
+    /**
+     * Wires the country resolver (client ip => country code, '' when
+     * unknown). Geo route tiers activate only once a resolver is
+     * configured; with none the geo tier is inert and the default limit
+     * applies. Passing null unsets the resolver.
+     */
+    public function setGeoResolver(?\Closure $geoResolver): void
+    {
         $this->geoResolver = $geoResolver;
     }
 
@@ -242,13 +265,18 @@ final class RateLimitHandler
             ];
         }
 
-        if ($request->geoRateLimits !== null) {
+        $geoLimits = $request->geoRateLimits;
+        if ($geoLimits !== null && $geoLimits !== [] && $this->geoResolver !== null) {
+            // Geo tier: country-specific entry first, "*" fallback, no
+            // match = no geo tier (the global tier below still applies).
+            // With no resolver configured the whole block is skipped: the
+            // geo tier is inert and the default limit applies.
             $entry = null;
-            $country = $this->geoResolver !== null ? ($this->geoResolver)($clientIp) : null;
-            if ($country !== null && $country !== '' && isset($request->geoRateLimits[$country])) {
-                $entry = $request->geoRateLimits[$country];
-            } elseif (isset($request->geoRateLimits['*'])) {
-                $entry = $request->geoRateLimits['*'];
+            $country = ($this->geoResolver)($clientIp);
+            if (is_string($country) && $country !== '' && isset($geoLimits[$country])) {
+                $entry = $geoLimits[$country];
+            } elseif (isset($geoLimits['*'])) {
+                $entry = $geoLimits['*'];
             }
             if ($entry !== null) {
                 $tiers[] = [$entry['limit'], $entry['window'], $path, 'geo'];

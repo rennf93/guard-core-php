@@ -43,6 +43,23 @@ $config = new SecurityConfig(
 $engine = new GuardEngine($config);
 ```
 
+## Geo rate limits
+
+Routes can carry per-country rate-limit tiers: `RouteConfig::$geoRateLimits` maps a country code (`'DE'`) or the `'*'` fallback to a `{limit, window}` tier, mirroring the reference engines' `@geo_rate_limit` decorator. Country resolution is pluggable and the tiers only activate when a country resolver is configured on the rate limit handler: **without a resolver the geo tier is inert and the default limit applies** (a route can carry the map, but nothing fires until one is wired). The resolver is a `Closure(string): string` from client ip to country code (empty string when unknown, which takes the `'*'` fallback); adapters wire it after engine construction:
+
+```php
+$engine = new GuardEngine($config);
+$engine->rateLimitHandler()->setGeoResolver(
+    static fn (string $ip): string => $ipinfo->countryOf($ip) // your geo lookup
+);
+
+$request->state()->routeConfig = new RouteConfig(
+    geoRateLimits: ['DE' => ['limit' => 5, 'window' => 60], '*' => ['limit' => 20, 'window' => 60]],
+);
+```
+
+A request from a resolved country enforces that country's tier first (`'*'` when the country is missing from the map, nothing when neither matches), the tier shares the route's hashed bucket, and exempt and whitelisted clients still skip the check entirely. Geo country blocking (`blocked_countries`/`whitelist_countries`) remains unsupported.
+
 ## Detection limits
 
 

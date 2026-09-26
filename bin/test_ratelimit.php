@@ -339,7 +339,7 @@ function setClock(float $t): void
     $GLOBALS['FAKE']->now = $t;
 }
 
-function makeIntegrationHandler(RateLimitConfig $config, RedisHandler $redis): RateLimitHandler
+function makeIntegrationHandler(RateLimitConfig $config, RedisHandler $redis, ?\Closure $geo = null): RateLimitHandler
 {
     $GLOBALS['WARNLIST'] = new ArrayObject([]);
     $GLOBALS['RELOADCTR'] = new ArrayObject(['n' => 0]);
@@ -351,7 +351,8 @@ function makeIntegrationHandler(RateLimitConfig $config, RedisHandler $redis): R
         },
         static function (): void {
             $GLOBALS['RELOADCTR']['n']++;
-        }
+        },
+        $geo
     );
     $handler->initializeRedis($redis);
     $handler->initializeIpBan(new IpBanManager());
@@ -450,7 +451,7 @@ if (!$integration) {
     $h->checkRateLimit($reqX, '6.6.6.6');
     $res = $h->checkRateLimit($reqX, '6.6.6.6');
     $t->same(true, $res !== null && $res->tier === 'endpoint', 'first block short-circuits at endpoint tier');
-    $t->same(4, count($f->zsets['guard_core:rate_limit:rate:6.6.6.6:' . hash('sha256', '/x')] ?? []), 'no hits after short-circuit (3 from request 1 + blocked hit)');
+    $t->same(3, count($f->zsets['guard_core:rate_limit:rate:6.6.6.6:' . hash('sha256', '/x')] ?? []), 'no hits after short-circuit (geo inert without resolver: 2 from request 1 + blocked hit)');
 
     $t->section('geo tier resolution');
     $hDe = makeHandler(new RateLimitConfig(rateLimit: 100, rateLimitWindow: 60), 1000.0, $f, $r, static fn (string $ip): string => 'DE', $nb, true);
@@ -461,6 +462,13 @@ if (!$integration) {
     $hUs->checkRateLimit($reqGeo, '8.8.8.8');
     $res = $hUs->checkRateLimit($reqGeo, '8.8.8.8');
     $t->same(true, $res !== null && $res->tier === 'geo', 'matching country enforced at geo tier');
+    $hNone = makeHandler(new RateLimitConfig(rateLimit: 3, rateLimitWindow: 60), 1000.0, $f, $r, null, $nb, true);
+    $reqNoGeo = new RateLimitRequest(urlPath: '/n', geoRateLimits: ['*' => ['limit' => 1, 'window' => 60]]);
+    $t->same(null, $hNone->checkRateLimit($reqNoGeo, '7.7.7.9'), 'no resolver: hit 1 allowed despite * geo limit 1');
+    $t->same(null, $hNone->checkRateLimit($reqNoGeo, '7.7.7.9'), 'no resolver: hit 2 allowed (geo tier inert)');
+    $t->same(null, $hNone->checkRateLimit($reqNoGeo, '7.7.7.9'), 'no resolver: hit 3 allowed (default limit governs)');
+    $res = $hNone->checkRateLimit($reqNoGeo, '7.7.7.9');
+    $t->same(true, $res !== null && $res->tier === 'global', 'no resolver: crossing happens at the global tier (default limit 3) on hit 4');
 
     $t->section('gates');
     $h = makeHandler(new RateLimitConfig(enableRateLimiting: false, rateLimit: 1, rateLimitWindow: 60), 0.0, $f);
@@ -667,7 +675,7 @@ if ($integration) {
 
     $t->section('integration: shared buckets, up to 4 hits');
     $conn->command('FLUSHDB');
-    $h = makeIntegrationHandler(new RateLimitConfig(rateLimit: 100, rateLimitWindow: 60, enableRedis: true), $redis);
+    $h = makeIntegrationHandler(new RateLimitConfig(rateLimit: 100, rateLimitWindow: 60, enableRedis: true), $redis, static fn (string $ip): string => 'US');
     $req = new RateLimitRequest(
         urlPath: '/api',
         routeRateLimit: 100,
@@ -677,6 +685,12 @@ if ($integration) {
     $t->same(null, $h->checkRateLimit($req, '33.1.1.1'), '4-tier redis request allowed');
     $t->same(2, (int) $conn->command('ZCARD', 'guard_core:rate_limit:rate:33.1.1.1:' . hash('sha256', '/api')), 'route+geo share one bucket (no endpoint tier)');
     $t->same(1, (int) $conn->command('ZCARD', 'guard_core:rate_limit:rate:33.1.1.1'), 'global bucket 1 hit');
+
+    $t->section('integration: geo tier inert without a resolver');
+    $conn->command('FLUSHDB');
+    $h = makeIntegrationHandler(new RateLimitConfig(rateLimit: 100, rateLimitWindow: 60, enableRedis: true), $redis);
+    $t->same(null, $h->checkRateLimit($req, '33.1.1.2'), 'geo map without resolver: request allowed');
+    $t->same(1, (int) $conn->command('ZCARD', 'guard_core:rate_limit:rate:33.1.1.2:' . hash('sha256', '/api')), 'only the route tier hits the hashed bucket (geo skipped, no resolver)');
 
     $t->section('integration: NOSCRIPT recovery');
     $conn->command('FLUSHDB');
