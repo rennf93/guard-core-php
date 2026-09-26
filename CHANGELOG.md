@@ -3,6 +3,17 @@
 Unreleased
 ----------
 
+Ordered JSON walk for bodies and embedded JSON values
+-----------------------------------------------------
+
+### Added
+
+- **JSON-content-type request bodies now walk as ordered JSON instead of scanning as one raw blob, and query parameters, headers, and form or multipart field values that themselves parse as JSON walk leaf-first with the `:embedded_json` context suffix.** The walk mirrors the reference engine's `body_json_scan.py`/`embedded_json_scan.py` (and the Go engine's `jsonwalk.go`): insertion-ordered parse with duplicate keys keeping the first position and the last value, every object key scanned as a plain `request_body` component, mongo operator keys (`$where`, `$ne`, `$gt`, ...) reported straight from the walk as nosql hits without a pattern scan, scalar leaves scanned as `str(value)` with the plain `request_body` context on the body walk and `<original context>:embedded_json` for embedded values, string leaves that themselves parse as JSON walked again with another suffix, and objects or arrays at the depth cap (32) serialized back to compact JSON and scanned as one value. Malformed input, trailing data, scalar roots, and nesting past the decoder cap fall back to the raw blob or raw value scan. New `JsonWalk` detection class; `SuspiciousActivityCheck` consumes the forced nosql category filtered by `enabled_detection_categories`.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker): the thirteen `bin/` runners plus `bin/conformance.php` (184/184 vectors, verdicts unchanged), and the new `bin/test_json_walk.php` honesty runner (48/48: parse gate, insertion order and duplicate keys, scalar renderings, mongo operator hits, depth-cap compact serialization and escaping, pipeline detection through bodies/query/headers, malformed and scalar JSON blob fallback, and recursive embedded walks), verified red on master (the runner aborts on the missing `JsonWalk` class).
+
 Raw-view recon scan
 -------------------
 
