@@ -5,11 +5,14 @@ declare(strict_types=1);
 use RenzoFranceschini\GuardCore\Ban\IpBanManager;
 use RenzoFranceschini\GuardCore\Cloud\CloudManager;
 use RenzoFranceschini\GuardCore\Cloud\RedisCloudIpStore;
+use RenzoFranceschini\GuardCore\Config\SecurityConfig;
+use RenzoFranceschini\GuardCore\Engine\GuardEngine;
 use RenzoFranceschini\GuardCore\Ip\CanonicalIp;
 use RenzoFranceschini\GuardCore\RateLimit\RateLimitConfig;
 use RenzoFranceschini\GuardCore\RateLimit\RateLimitHandler;
 use RenzoFranceschini\GuardCore\RateLimit\RateLimitRequest;
 use RenzoFranceschini\GuardCore\Redis\RedisHandler;
+use RenzoFranceschini\GuardCore\Request\SimpleGuardRequest;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -71,6 +74,10 @@ const INTEROP_NETWORK_PROBE = '198.51.100.55';
 const INTEROP_BUCKET_A = '192.0.2.10';
 const INTEROP_BUCKET_B = '192.0.2.11';
 const INTEROP_BUCKET_C = '192.0.2.12';
+const INTEROP_EXEMPT_IP = '192.0.2.30';
+const INTEROP_EXEMPT_NORMAL_IP = '192.0.2.31';
+const INTEROP_EXEMPT_BLACK_IP = '192.0.2.32';
+const INTEROP_EXEMPT_LIMIT = 2;
 
 /**
  * @param array<string, mixed> $input
@@ -229,6 +236,73 @@ function runPhpReadThenWrite(InteropRunner $t, RedisHandler $redis, array $input
     $t->check('ttl_semantics', 'py:php', 'bucket A TTL stays within 2x the window', $bucketPttl > 0 && $bucketPttl <= INTEROP_RATE_WINDOW * 2 * 1000, "pttl_ms={$bucketPttl}");
 }
 
+/**
+ * @param array<string, mixed> $input
+ */
+function runPhpExemptReadThenWrite(InteropRunner $t, RedisHandler $redis, array $input): void
+{
+    $limit = (int) ($input['expected_exempt_limit'] ?? INTEROP_EXEMPT_LIMIT);
+    $host = getenv('REDIS_HOST') ?: '127.0.0.1';
+    $config = new SecurityConfig(
+        enableRedis: true,
+        redisUrl: 'redis://' . $host . ':6379',
+        redisPrefix: INTEROP_PREFIX,
+        enableRateLimiting: true,
+        rateLimit: $limit,
+        rateLimitWindow: INTEROP_RATE_WINDOW,
+        enableRateLimitAutoBan: false,
+        autoBanThreshold: 1000,
+        blacklist: [INTEROP_EXEMPT_BLACK_IP],
+        exemptIps: [INTEROP_EXEMPT_IP, INTEROP_EXEMPT_BLACK_IP]
+    );
+    $engine = new GuardEngine($config, $redis);
+    $engine->initialize();
+
+    $drive = function (string $ip) use ($engine): array {
+        $request = new SimpleGuardRequest(urlPath: '/api', clientHost: $ip);
+        $response = $engine->execute($request);
+
+        return [$response, $request->state()];
+    };
+
+    $exemptFlag = false;
+    $exemptPassed = true;
+    for ($i = 0; $i < $limit + 1; $i++) {
+        [$response, $state] = $drive(INTEROP_EXEMPT_IP);
+        if ($response !== null) {
+            $exemptPassed = false;
+        }
+        $exemptFlag = $state->isExempt;
+    }
+    $t->check('exempt_allowed', 'py+go+php:php', sprintf('php engine passes the exempt client through %d pipeline drives at limit %d', $limit + 1, $limit),
+        $exemptPassed && $exemptFlag, 'isExempt=' . var_export($exemptFlag, true));
+
+    $afterGo = (int) ($input['exempt_n_after_go'] ?? -1);
+    $rlObs = new RateLimitHandler(interopRateConfig($afterGo));
+    $rlObs->initializeRedis($redis);
+    $out = $rlObs->checkRateLimit(new RateLimitRequest(), INTEROP_EXEMPT_NORMAL_IP);
+    $t->check('rate_continuity', 'py+go:php', 'php observes the shared non-exempt bucket count on a blocked hit at the pinned crossing',
+        $out !== null && $out->count === $afterGo + 1 && $out->inMemory === false,
+        'count=' . ($out !== null ? (string) $out->count : 'null') . " want=" . (string) ($afterGo + 1));
+
+    [$blackResponse, $blackState] = $drive(INTEROP_EXEMPT_BLACK_IP);
+    $t->check('blacklist_precedence', 'py+go+php:php', 'php engine denies the blacklisted exempt IP 403 without the exempt flag',
+        $blackResponse !== null && $blackResponse->statusCode() === 403 && $blackState->isExempt === false,
+        'status=' . ($blackResponse !== null ? (string) $blackResponse->statusCode() : 'null'));
+
+    $conn = $redis->connection();
+    $exemptZcard = $conn->zCard($redis->fullKey('rate_limit', 'rate:' . INTEROP_EXEMPT_IP));
+    $t->check('exempt_no_state', 'py+go+php:php', 'exempt traffic leaves the shared bucket empty after the php drives',
+        $exemptZcard === 0, "zcard={$exemptZcard}");
+    $blackZcard = $conn->zCard($redis->fullKey('rate_limit', 'rate:' . INTEROP_EXEMPT_BLACK_IP));
+    $t->check('blacklist_no_state', 'py+go+php:php', 'the blacklisted exempt bucket stays empty',
+        $blackZcard === 0, "zcard={$blackZcard}");
+
+    if ($out !== null) {
+        $t->artifacts['exempt_n_after_php'] = (string) $out->count;
+    }
+}
+
 $phase = getenv('INTEROP_PHASE') ?: '';
 $host = getenv('REDIS_HOST') ?: '127.0.0.1';
 $inputRaw = getenv('INTEROP_INPUT') ?: '{}';
@@ -252,6 +326,9 @@ $t = new InteropRunner();
 switch ($phase) {
     case 'php_read_then_write':
         runPhpReadThenWrite($t, $redis, $input);
+        break;
+    case 'php_exempt_read_then_write':
+        runPhpExemptReadThenWrite($t, $redis, $input);
         break;
     default:
         fwrite(STDERR, "php runner does not serve phase '{$phase}'\n");
