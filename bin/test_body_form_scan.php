@@ -97,10 +97,32 @@ function blocked(SuspiciousActivityCheck $check, string $body, string $contentTy
     return $check->check($request) instanceof GuardResponse;
 }
 
+function blockedQueryParam(SuspiciousActivityCheck $check, string $name, string $value): bool
+{
+    $request = new SimpleGuardRequest(urlPath: '/items', queryParams: [$name => $value]);
+    $request->state()->clientIp = '9.9.9.9';
+
+    return $check->check($request) instanceof GuardResponse;
+}
+
+function blockedQueryValue(SuspiciousActivityCheck $check, string $value): bool
+{
+    $request = new SimpleGuardRequest(urlPath: '/items', queryParams: ['v' => $value]);
+    $request->state()->clientIp = '9.9.9.9';
+
+    return $check->check($request) instanceof GuardResponse;
+}
+
+function textPartBody(string $name, string $content): string
+{
+    return "--B0\r\nContent-Disposition: form-data; name=\"{$name}\"\r\n\r\n" . $content . "\r\n--B0--\r\n";
+}
+
 const MULTIPART_CT = 'multipart/form-data; boundary=B0';
 const OCTET_STREAM_CT = 'application/octet-stream';
 const TEXT_CT = 'text/plain';
 const FORM_CT = 'application/x-www-form-urlencoded';
+const JSON_CT = 'application/json';
 const SCRIPT = '<script>alert(1)</script>';
 const TAUTOLOGY = '1 OR 1=1';
 
@@ -208,6 +230,70 @@ $t->same(false, in_array($rawBody, $values, true), 'binary part payload never sc
 $t->same(true, in_array(str_repeat('x', 16), $values, true), 'the printable island is scanned as its own value');
 $contexts = array_map(static fn (array $e): string => $e[1], $islandEntries);
 $t->same(true, in_array('request_body:multipart_field', $contexts, true), 'part entries carry the multipart_field context');
+
+$t->section('config: excluded field sets default empty and validate');
+$t->same([], array_keys((new SecurityConfig())->excludedDetectionParams), 'excludedDetectionParams defaults empty');
+$t->same([], array_keys((new SecurityConfig())->excludedDetectionBodyFields), 'excludedDetectionBodyFields defaults empty');
+$t->same(['search'], array_keys((new SecurityConfig(excludedDetectionParams: ['search']))->excludedDetectionParams), 'param entries kept verbatim');
+$t->same(['notes'], array_keys((new SecurityConfig(excludedDetectionBodyFields: ['notes']))->excludedDetectionBodyFields), 'body field entries kept verbatim');
+try {
+    new SecurityConfig(excludedDetectionParams: 'search');
+    $t->same(true, false, 'bare string param exclusion rejected');
+} catch (TypeError) {
+    $t->same(true, true, 'bare string param exclusion rejected');
+}
+try {
+    new SecurityConfig(excludedDetectionBodyFields: ['notes', 3]);
+    $t->same(true, false, 'non-string body field entry rejected');
+} catch (InvalidArgumentException) {
+    $t->same(true, true, 'non-string body field entry rejected');
+}
+
+$t->section('config: excluded field sets are with()-immutable');
+$base = new SecurityConfig();
+$mutated = $base->with(['excluded_detection_params' => ['search']]);
+$t->same([], array_keys($base->excludedDetectionParams), 'with() leaves the original untouched');
+$t->same(['search'], array_keys($mutated->excludedDetectionParams), 'with() carries the new exclusion');
+$t->same(1, $mutated->revision(), 'with() bumps the revision');
+
+$t->section('excluded params: the whole query pair is skipped');
+$paramCheck = makeCheck(new SecurityConfig(excludedDetectionParams: ['search']));
+$t->same(false, blockedQueryParam($paramCheck, 'search', SCRIPT), 'excluded query param does not block');
+$t->same(true, blockedQueryParam($paramCheck, 'other', SCRIPT), 'non-excluded query param still blocks');
+$t->same(false, blockedQueryParam($paramCheck, 'SEARCH', SCRIPT), 'query names compare lowercased against verbatim entries');
+$t->same(true, blockedQueryParam(makeCheck(new SecurityConfig(excludedDetectionParams: ['SEARCH'])), 'search', SCRIPT), 'entries match verbatim, never lowercased');
+
+$t->section('excluded params and body fields keep their own surfaces');
+$t->same(true, blocked($paramCheck, json_encode(['search' => SCRIPT]), JSON_CT), 'param exclusion does not exclude body fields');
+$bodyFieldCheck = makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['search']));
+$t->same(true, blockedQueryValue($bodyFieldCheck, SCRIPT), 'body-field exclusion does not exclude query params');
+
+$t->section('excluded body fields: JSON keys skip their whole subtree');
+$t->same(false, blocked($bodyFieldCheck, json_encode(['search' => SCRIPT]), JSON_CT), 'excluded JSON key does not block');
+$t->same(true, blocked($bodyFieldCheck, json_encode(['search' => SCRIPT, 'note' => SCRIPT]), JSON_CT), 'sibling JSON key still blocks');
+$nestedCheck = makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['content']));
+$t->same(false, blocked($nestedCheck, json_encode(['messages' => [['role' => 'user', 'content' => SCRIPT]]]), JSON_CT), 'excluded nested key suppresses the whole subtree');
+$t->same(true, blocked($nestedCheck, json_encode(['outer' => ['note' => SCRIPT]]), JSON_CT), 'nested non-excluded key still blocks');
+$t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['safe'])), json_encode([['note' => SCRIPT]]), JSON_CT), 'top-level JSON array still recurses');
+
+$t->section('excluded body fields: embedded JSON in query and header values');
+$t->same(false, blockedQueryValue($bodyFieldCheck, json_encode(['search' => SCRIPT])), 'excluded key inside a query JSON does not block');
+$t->same(true, blockedQueryValue($bodyFieldCheck, json_encode(['search' => SCRIPT, 'note' => SCRIPT])), 'sibling key inside a query JSON still blocks');
+
+$t->section('excluded body fields: urlencoded pairs');
+$t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['other'])), 'message=' . urlencode(SCRIPT) . '&other=hi', FORM_CT), 'non-excluded form field still blocks');
+$t->same(false, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['message'])), 'message=' . urlencode(SCRIPT) . '&other=hi', FORM_CT), 'excluded form field skips the whole pair');
+
+$t->section('excluded body fields: multipart parts');
+$t->same(false, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['note'])), textPartBody('note', SCRIPT), MULTIPART_CT), 'excluded multipart text part does not block');
+$t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['other'])), textPartBody('note', SCRIPT), MULTIPART_CT), 'non-excluded multipart text part still blocks');
+$t->same(false, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['file'])), filePartBody('a.txt', SCRIPT, 'file'), MULTIPART_CT), 'excluded multipart file part does not block');
+$t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['file'])), "--B0\r\nContent-Disposition: form-data\r\n\r\n" . SCRIPT . "\r\n--B0--\r\n", MULTIPART_CT), 'part without a name has no exclusion key');
+$t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['unused'])), SCRIPT, MULTIPART_CT), 'unparseable multipart falls back to the blob scan');
+
+$t->section('empty exclusion config keeps current behavior');
+$t->same(true, blocked(makeCheck(new SecurityConfig()), json_encode(['search' => SCRIPT]), JSON_CT), 'JSON body attack blocks with no exclusions');
+$t->same(true, blockedQueryValue(makeCheck(new SecurityConfig()), SCRIPT), 'query attack blocks with no exclusions');
 
 echo "\npassed={$t->passed} failed={$t->failed}\n";
 exit($t->failed === 0 ? 0 : 1);

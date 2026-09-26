@@ -3,6 +3,17 @@
 Unreleased
 ----------
 
+Excluded detection fields config
+--------------------------------
+
+### Added
+
+- **The reference's excluded-field config surface is now available in PHP: `excluded_detection_params` and `excluded_detection_body_fields` on `SecurityConfig`.** `excluded_detection_params` skips a query parameter's whole pair from penetration detection (`key.lower() in excluded_params` in `_scan_query_params`), and `excluded_detection_body_fields` skips urlencoded form pairs and multipart parts by field name and whole JSON subtrees by key at any nesting depth (the body walk and the embedded-JSON walks of query and header values all honor it, mirroring the reference threading `excluded_body_fields` through `_scan_form_body`, `_scan_multipart_part`, `JsonWalk`, `_scan_query_param_value`, and `_scan_normal_header_component`). Entries are kept verbatim (Python's `_STR_SET_ADAPTER` stores them as given) while scanned names and keys are lowercased before the membership test, so the reference's exact case semantics hold (`['SEARCH']` does not suppress a `search` key, `['search']` suppresses `SEARCH`). Empty config keeps current behavior; the fields participate in `with()` immutability and revision bumping like sibling fields.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker, throwaway redis:7-alpine): all `bin/` runners including `bin/conformance.php` (184/184 vectors, verdicts unchanged), with 24 new honesty assertions in `bin/test_body_form_scan.php` (query pair skip, body vs query exclusion distinction, JSON key subtree skip at the top level and nested, sibling keys still scanning, array recursion, form pair skip with siblings intact, multipart text and file part suppression, unnamed parts never suppressed, unparseable multipart blob fallback, embedded JSON inside query values honoring the body-field exclusion, verbatim-entry case semantics, empty-config behavior, validation, and `with()` immutability) and 8 in `bin/test_json_walk.php` (subtree skip, exclusion checked before the mongo-operator registry, threading into re-parsed leaf walks, key lowercasing against verbatim entries).
+
 Ordered JSON walk for bodies and embedded JSON values
 -----------------------------------------------------
 
