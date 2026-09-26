@@ -13,6 +13,7 @@ Excluded detection headers config
 ### Verification
 
 - Full suite green on PHP 8.3 (Docker, php:8.3-cli, throwaway redis:7-alpine for the Redis-backed runners): `bin/conformance.php` 184/184 (verdicts unchanged), `bin/test_nfkc.php` 142301/142301, `bin/test_body_form_scan.php` 72/72, `bin/test_json_walk.php` 56/56, `bin/test_exempt_ips.php` 52/52, `bin/test_state.php`, `bin/test_m3c.php` 93/93, `bin/test_binary_noise_gate.php` 80/80, `bin/test_recon_context_gate.php` 141/141, `bin/test_recon_raw_view_scan.php` 77/77, `bin/test_m3b.php` 106/106, `bin/test_m4.php` 144/144 all green, and the new `bin/test_excluded_headers.php` honesty runner (50 assertions: address-carrying proxy values not flagged by default, structured proxy header values not flagged, jndi/sqli/xss on excluded headers still blocking, unknown headers keeping the full scan, configured exclusions suppressing ssrf only with address chains and ports, the ssrf-only enabled-categories interaction, the `HeaderExclusions` helper matrix, validation and `with()` immutability, and empty-config current-behavior pins) registered in the Makefile `RUNNERS` list and the CI workflow.
+
 Geo rate limit tiers reachable end to end
 -----------------------------------------
 
@@ -23,6 +24,17 @@ Geo rate limit tiers reachable end to end
 ### Verification
 
 - Full suite green on PHP 8.3 (Docker, php:8.3-cli + throwaway redis:7-alpine, no host php/composer): all `bin/` runners including `bin/conformance.php` (verdicts unchanged), the geo sections of `bin/test_ratelimit.php` updated to the resolver-gated semantics plus a no-resolver inertness pin (unit and wire level), and the new `bin/test_geo_rate_limits.php` honesty runner (unit, pipeline and `--integration` over a real Redis wire) covering: the `RouteConfig` surface (defaults, verbatim roundtrip, all malformed-entry leniency drops, `with()` immutability/revision/carry and the snake_case name rejection), handler tier resolution (DE tier enforced at its crossing with the geo window in `Retry-After`, unknown country and empty-string resolver answers falling back to `"*"`, country-specific entry beating `"*"`, no matching entry leaving the crossing on the global tier, the resolver receiving exactly the client ip and never being called without a geo map, no resolver leaving the tier inert while the same handler wired via `setGeoResolver()` blocks, and `setGeoResolver(null)` unwiring), pipeline end to end (429 at the geo crossing with the `geo tier` reason on `on_block`, the same route staying on the `global tier` reason without a resolver, exempt and whitelist skips preceding the geo tier, the `rate_limit` route bypass skipping it, and passive mode logging without blocking or firing the event), `appliesTo` scheduling, and the wire-level integration (DE crossing over EVALSHA with the hashed bucket, `"*"` fallback over the wire, and no resolver writing no geo bucket at all), registered in the Makefile `REDIS_RUNNERS` list and the CI workflow.
+
+Clean-parse fall-through for nested JSON leaf walks
+---------------------------------------------------
+
+### Fixed
+
+- **A payload confined to the structural text of a nested JSON leaf one nesting level down was invisible: a string leaf that itself parses as JSON walked its nested entries but dropped the raw leaf string from the scan.** `JsonWalk::walkEntries` replaced the leaf with its re-parsed walk whenever the nested parse succeeded, so text that only exists in the raw leaf (a duplicate-key remnant the parse collapses, characters living in the JSON structure itself) never reached the pattern scan when every walked leaf looked innocent. The nested walk now falls through to the raw leaf string scanned with the walk context (not the nested suffix), exactly like the reference's `_check_embedded_json` + `_check_value_enhanced` order (the embedded-JSON walk short-circuits the raw scan only when a leaf hits) and the Go engine's guard-core-go #17. The field-level fall-through kept in #18 is untouched; the top-level JSON body walk still never re-parses leaf strings.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker, php:8.3-cli, throwaway redis:7-alpine): `bin/conformance.php` 184/184 (verdicts unchanged), `bin/test_nfkc.php` 142301/142301, `bin/test_json_walk.php` 64/64 with 8 new assertions, `bin/test_body_form_scan.php` 72/72, `bin/test_m3c.php` 93/93, `bin/test_state.php`, `bin/test_binary_noise_gate.php` 80/80, `bin/test_recon_context_gate.php` 141/141, `bin/test_recon_raw_view_scan.php` 77/77, `bin/test_exempt_ips.php` 52/52, and the Redis-backed `bin/test_pipeline.php` 107/107, `bin/test_m3b.php` 106/106, `bin/test_m4.php` 144/144. The new walk-level assertions verify red on master (62/64 without the fix) and the runner adds end-to-end pins for a duplicate-key remnant confined to a nested leaf through the form, multipart and header paths.
 
 exempt_ips skip-list for trusted automated clients
 ---------------------------------------------------

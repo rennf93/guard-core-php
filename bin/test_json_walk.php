@@ -211,6 +211,28 @@ $values = array_map(static fn (array $e): string => $e[0], $entries);
 $t->same(true, in_array(SCRIPT, $values, true), 'script inside the re-parsed leaf is scanned');
 $t->same(true, in_array('request_body', $contexts, true), 'walk keys always scan as request_body');
 
+$t->section('walk: clean-parse fall-through rescans the raw leaf string');
+$inner = str_replace('"', '\\"', '{"a": "' . SCRIPT . '", "a": "safe"}');
+$rawLeaf = '{"a": "' . SCRIPT . '", "a": "safe"}';
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"outer": "' . $inner . '"}'), 'request_body:form_field:embedded_json');
+$values = array_map(static fn (array $e): string => $e[0], $entries);
+$t->same(true, in_array($rawLeaf, $values, true), 'raw leaf string scans after a clean nested walk');
+$rawLeafEntry = $entries[array_search($rawLeaf, $values, true)];
+$t->same('request_body:form_field:embedded_json', $rawLeafEntry[1], 'raw leaf rescans with the walk context, not the nested suffix');
+$contexts = array_map(static fn (array $e): string => $e[1], $entries);
+$t->same(true, in_array('request_body:form_field:embedded_json:embedded_json', $contexts, true), 'nested leaves still carry the second suffix');
+$t->same(true, in_array('safe', $values, true), 'nested leaves still scan');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"outer": "plain"}'), 'request_body:form_field:embedded_json');
+$values = array_map(static fn (array $e): string => $e[0], $entries);
+$t->same(2, count($entries), 'non-parsing leaf keeps the single plain entry');
+
+$t->section('pipeline: payload confined to structural text one nesting level down detects');
+$nested = '{"outer": "' . str_replace('"', '\\"', '{"a": "' . SCRIPT . '", "a": "safe"}') . '"}';
+$t->same(true, blocked($check, 'data=' . $nested, 'application/x-www-form-urlencoded'), 'duplicate-key remnant in a nested form leaf still blocks');
+$multipartBody = "--B0\r\nContent-Disposition: form-data; name=\"data\"\r\n\r\n" . $nested . "\r\n--B0--\r\n";
+$t->same(true, blocked($check, $multipartBody, 'multipart/form-data; boundary=B0'), 'duplicate-key remnant in a nested multipart leaf still blocks');
+$t->same(true, blockedHeader($check, $nested), 'duplicate-key remnant in a header JSON still blocks');
+
 $t->section('body routing: json content types walk, others keep the blob');
 $entries = BodyFormScan::bodyScanEntries('{"url": "/default.asp"}', JSON_CT, 16);
 $contexts = array_map(static fn (array $e): string => $e[1], $entries);
