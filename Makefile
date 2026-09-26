@@ -28,7 +28,7 @@ test:
 		runner="php"; \
 	else \
 		echo "php not found locally, using $(PHP_IMAGE)"; \
-		runner="docker run --rm -v \"$$PWD\":/app -w /app -e REDIS_HOST=$(REDIS_HOST) $(PHP_IMAGE) php"; \
+		runner="docker run --rm -v $$PWD:/app -w /app -e REDIS_HOST=$(REDIS_HOST) $(PHP_IMAGE) php"; \
 	fi; \
 	status=0; \
 	for r in $(RUNNERS); do \
@@ -50,8 +50,8 @@ lint:
 		composer_cmd="composer validate --strict"; \
 	else \
 		echo "php not found locally, using $(PHP_IMAGE)"; \
-		php_lint="docker run --rm -v \"$$PWD\":/app -w /app $(PHP_IMAGE) php -l"; \
-		composer_cmd="docker run --rm -v \"$$PWD\":/app -w /app $(COMPOSER_IMAGE) composer validate --strict"; \
+		php_lint="docker run --rm -v $$PWD:/app -w /app $(PHP_IMAGE) php -l"; \
+		composer_cmd="docker run --rm -v $$PWD:/app -w /app $(COMPOSER_IMAGE) composer validate --strict"; \
 	fi; \
 	status=0; \
 	for f in $$(find src bin -name '*.php'); do \
