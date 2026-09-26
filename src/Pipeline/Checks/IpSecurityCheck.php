@@ -62,6 +62,7 @@ final class IpSecurityCheck extends SecurityCheck
         $whitelist = $this->config->whitelist;
         $whitelistActive = $whitelist !== null && $whitelist !== [];
         $request->state()->isWhitelisted = false;
+        $request->state()->isExempt = false;
 
         foreach ($this->config->blacklist as $entry) {
             if (self::matches($entry, $clientIp)) {
@@ -91,6 +92,23 @@ final class IpSecurityCheck extends SecurityCheck
                 return null;
             }
             $request->state()->isWhitelisted = true;
+        }
+
+        // Exempt resolution mirrors the reference's _resolve_is_exempt: it
+        // runs only after every deny check above passed (the reference's
+        // is_allowed, reached by falling through), so it never adds or
+        // removes a deny path. An exempt match sets the skip flag the
+        // rate-limit, user-agent and cloud-provider checks honor; the
+        // whitelist deny path above is untouched, so an exempt IP does not
+        // pass a restrictive whitelist, and penetration detection ignores
+        // the flag entirely.
+        if ($this->config->exemptIps !== []) {
+            foreach ($this->config->exemptIps as $entry) {
+                if (self::matches($entry, $clientIp)) {
+                    $request->state()->isExempt = true;
+                    break;
+                }
+            }
         }
 
         return null;

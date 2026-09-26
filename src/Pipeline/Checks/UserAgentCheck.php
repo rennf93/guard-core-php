@@ -45,7 +45,7 @@ final class UserAgentCheck extends SecurityCheck
 
     public function check(GuardRequest $request): ?GuardResponse
     {
-        if ($request->state()->isWhitelisted) {
+        if ($request->state()->isWhitelisted || $request->state()->isExempt) {
             return null;
         }
 

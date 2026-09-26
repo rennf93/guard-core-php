@@ -3,6 +3,17 @@
 Unreleased
 ----------
 
+exempt_ips skip-list for trusted automated clients
+---------------------------------------------------
+
+### Added
+
+- **The reference's `exempt_ips` skip-list is now available in PHP: a new `SecurityConfig` field (`exemptIps`, spec-frozen name `exempt_ips`) listing IPs and CIDRs whose requests skip the rate-limit, user-agent and per-route cloud-provider checks.** A non-empty `whitelist` is also an allowlist, so there was no way to let a few known-friendly automated clients (monitoring probes, VPN egress, a partner's server) skip throttling without denying everyone else. An exempt match sets `RequestState::$isExempt` in the global IP stage (the family-local equivalent of the reference's `is_exempt`), and the whitelist deny path is untouched: exemption never adds or removes a deny path and is resolved only after the deny checks pass (mirroring the reference's `_resolve_is_exempt` gating on `is_allowed`), so an exempt IP does not pass a restrictive whitelist it is not on and an IP in both lists is simply a whitelist match. Deliberately still applying to exempt IPs: the blacklist, dynamic IP bans, the global `block_cloud_providers` list (the reference enforces it inside the global IP stage ahead of the flag, so the PHP cloud check resolves the global list directly for exempt requests while route-driven cloud blocks skip) and penetration detection including its violation counting and auto-ban contribution (`SuspiciousActivityCheck` honors only `isWhitelisted`, exactly like the reference). Entries are validated fail-closed at construction exactly like `whitelist`/`blacklist` (IP or CIDR, IPv4, IPv6 and IPv4-matched forms canonicalized the same way; invalid entry throws), and the field participates in `with()` immutability and revision bumping like sibling fields. Parity with guard-core `feat(config): exempt_ips`, upstream PR #118.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker, php:8.3-cli, no host php/composer): all `bin/` runners including `bin/conformance.php` (184/184 vectors, verdicts unchanged), and the new `bin/test_exempt_ips.php` honesty runner porting the spec's 10-item acceptance checklist expressible at engine level (52 assertions: exempt exact IP and exempt CIDR exceeding `rate_limit` with normal responses, a non-exempt client still hitting 429 at the limit, empty-whitelist no-deny-path-leak plus the unchanged restrictive-whitelist deny and the both-lists whitelist-match pin, blacklist and dynamic-ban overrides with the flag provably unset, attack payloads from exempt IPs still detected at 400 with the flag set, invalid-entry fail-closed construction, IPv4-mapped and IPv6-CIDR matching with whitelist-matcher parity pins, the user-agent and global-cloud-block consumer checks, and the per-route cloud-block skip) registered in the Makefile `RUNNERS` list and the CI workflow. Spec checklist item 7 (per-route `require_ip`/`block_ip`) is documented as not applicable at engine level: the PHP `RouteConfig` surface has no route-level IP rule lists, so the runner pins the engine-level analog instead (a route bypassing the global IP stage leaves the skip flags unset and rate limiting still applies there).
+
 Excluded detection fields config
 --------------------------------
 

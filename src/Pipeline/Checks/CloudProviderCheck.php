@@ -62,9 +62,24 @@ final class CloudProviderCheck extends SecurityCheck
             return null;
         }
 
-        $providers = $this->routeResolver->getCloudProvidersToCheck($routeConfig, $this->config->blockCloudProviders);
-        if ($providers === null) {
-            return null;
+        if ($state->isExempt) {
+            // An exempt match skips the route-driven cloud blocks, but the
+            // global block_cloud_providers list still applies: the reference
+            // enforces the global list inside the global IP stage
+            // (check_ip_access), ahead of the exempt flag, so an exempt
+            // match can never be set past it. This port enforces the global
+            // list here, so the exempt skip resolves the global list
+            // directly instead of the route-wins composition.
+            if ($this->config->blockCloudProviders === []) {
+                return null;
+            }
+
+            $providers = $this->config->blockCloudProviders;
+        } else {
+            $providers = $this->routeResolver->getCloudProvidersToCheck($routeConfig, $this->config->blockCloudProviders);
+            if ($providers === null) {
+                return null;
+            }
         }
 
         if (!$this->cloudManager->isCloudIp($clientIp, $providers)) {

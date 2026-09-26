@@ -20,6 +20,14 @@ final class RequestState
 
     public bool $isWhitelisted = false;
 
+    /**
+     * Set by the global IP stage when the client IP matches an exempt_ips
+     * entry and every deny check passed. The rate-limit, user-agent and
+     * cloud-provider checks skip on it; penetration detection, the
+     * blacklist, bans and the whitelist deny path do not.
+     */
+    public bool $isExempt = false;
+
     public ?bool $guardRouteUnresolved = null;
 
     /** @var array{reason: string, trigger_info: string}|null */
