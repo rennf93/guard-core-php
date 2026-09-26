@@ -82,6 +82,21 @@ jobs:
       - name: test_nfkc
         run: php bin/test_nfkc.php
 
+      - name: test_binary_noise_gate
+        run: php bin/test_binary_noise_gate.php
+
+      - name: test_recon_context_gate
+        run: php bin/test_recon_context_gate.php
+
+      - name: test_recon_raw_view_scan
+        run: php bin/test_recon_raw_view_scan.php
+
+      - name: test_body_form_scan
+        run: php bin/test_body_form_scan.php
+
+      - name: test_json_walk
+        run: php bin/test_json_walk.php
+
   composer-audit:
     name: Composer audit
     runs-on: ubuntu-latest
