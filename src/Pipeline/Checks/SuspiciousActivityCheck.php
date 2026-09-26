@@ -7,6 +7,7 @@ namespace RenzoFranceschini\GuardCore\Pipeline\Checks;
 use RenzoFranceschini\GuardCore\Ban\IpBanManager;
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
 use RenzoFranceschini\GuardCore\Detection\BodyFormScan;
+use RenzoFranceschini\GuardCore\Detection\JsonWalk;
 use RenzoFranceschini\GuardCore\Detection\SusPatterns;
 use RenzoFranceschini\GuardCore\Pipeline\SecurityCheck;
 use RenzoFranceschini\GuardCore\Request\GuardRequest;
@@ -53,7 +54,18 @@ final class SuspiciousActivityCheck extends SecurityCheck
         }
 
         $categories = [];
-        foreach ($this->scanValues($request) as [$content, $context]) {
+        foreach ($this->scanValues($request) as [$content, $context, $forcedCategory]) {
+            if ($forcedCategory !== null) {
+                // JSON mongo-operator keys report straight from the walk
+                // (body_json_scan._mongo_operator_key_hit) without a pattern
+                // scan.
+                if (isset($this->config->enabledDetectionCategories[$forcedCategory])
+                    && !in_array($forcedCategory, $categories, true)
+                ) {
+                    $categories[] = $forcedCategory;
+                }
+                continue;
+            }
             $result = $this->susPatterns->detect($content, $clientIp, $context);
             if ($result['is_threat']) {
                 foreach ($result['threats'] as $threat) {
@@ -101,25 +113,33 @@ final class SuspiciousActivityCheck extends SecurityCheck
     }
 
     /**
-     * The request body is routed through the form/multipart extraction (port
-     * of guard_core/_utils/body_form_scan.py): urlencoded bodies scan as
-     * field name/value pairs with the request_body:form_field context,
-     * multipart bodies as part entries with the request_body:multipart_field
-     * context (binary-dense file payloads reduced to binary islands via
-     * detection_binary_min_run_length), and everything else as the one raw
-     * body. Values that parse as embedded JSON scan leaf-first with the
-     * :embedded_json context suffix, so the per-context gates in
-     * SusPatterns::buildRegexThreat see the context of the value actually
-     * being scanned.
+     * Every request surface scanned with the context of the value actually
+     * being scanned, so the per-context gates in SusPatterns::buildRegexThreat
+     * apply. The request body is routed through the form/multipart/JSON
+     * extraction (port of guard_core/_utils/body_form_scan.py and
+     * body_json_scan.py): urlencoded bodies scan as field name/value pairs
+     * with the request_body:form_field context, multipart bodies as part
+     * entries with the request_body:multipart_field context (binary-dense
+     * file payloads reduced to binary islands via
+     * detection_binary_min_run_length), JSON-content-type bodies as ordered
+     * JSON walks (mongo-operator keys reported straight from the walk, keys
+     * as plain request_body components, leaves as request_body values,
+     * depth-capped subtrees as compact serializations), and everything else
+     * as the one raw body. Query parameters and headers scan with their own
+     * context; any of those values that itself parses as embedded JSON scans
+     * leaf-first with the :embedded_json context suffix before the raw
+     * value.
      *
-     * @return list<array{string, string}>
+     * @return list<array{string, string, ?string}> [content, context, forcedCategory]
      */
     private function scanValues(GuardRequest $request): array
     {
-        $values = [[$request->urlPath(), 'url_path']];
+        $values = [[$request->urlPath(), 'url_path', null]];
         foreach ($request->queryParams() as $name => $value) {
             foreach ((array) $value as $single) {
-                $values[] = [(string) $single, 'query_param'];
+                foreach ($this->scannedValue((string) $single, 'query_param') as $entry) {
+                    $values[] = $entry;
+                }
             }
         }
         $headers = $request->headers();
@@ -127,17 +147,39 @@ final class SuspiciousActivityCheck extends SecurityCheck
             if (isset($this->config->logSensitiveHeaders[strtolower($name)])) {
                 continue;
             }
-            $values[] = [(string) $value, 'header'];
+            foreach ($this->scannedValue((string) $value, 'header') as $entry) {
+                $values[] = $entry;
+            }
         }
         $body = $request->body();
         if ($body !== '') {
             $contentType = $headers->get('content-type') ?? '';
-            foreach (BodyFormScan::bodyScanEntries($body, $contentType, $this->config->detectionBinaryMinRunLength) as [$content, $context]) {
-                $values[] = [$content, $context];
+            foreach (BodyFormScan::bodyScanEntries($body, $contentType, $this->config->detectionBinaryMinRunLength) as [$content, $context, $forcedCategory]) {
+                $values[] = [$content, $context, $forcedCategory];
             }
         }
 
         return $values;
+    }
+
+    /**
+     * One query or header value: an embedded JSON value walks leaf-first
+     * with the context plus the :embedded_json suffix (the reference's
+     * embedded-JSON check runs for every non-body context), then the raw
+     * value scans with the plain context.
+     *
+     * @return list<array{string, string, null}>
+     */
+    private function scannedValue(string $value, string $context): array
+    {
+        $root = JsonWalk::parse($value);
+        if ($root === null) {
+            return [[$value, $context, null]];
+        }
+        $entries = JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX);
+        $entries[] = [$value, $context, null];
+
+        return $entries;
     }
 
     private function incrementCount(string $ip): int

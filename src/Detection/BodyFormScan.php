@@ -18,10 +18,14 @@ namespace RenzoFranceschini\GuardCore\Detection;
  * SusPatterns::buildRegexThreat apply per value, and binary-dense file-part
  * payloads are reduced to binary islands before scanning.
  *
- * Excluded field sets (Python excluded_body_fields), the JSON-content-type
- * body routing, the JSON key scan and the mongo operator key rule belong to
- * body_json_scan/body_content_scan, which this engine has no surface for
- * yet; no PHP config field exists for them (see KNOWN_GAPS).
+ * JSON-content-type bodies route through the ordered JsonWalk (body keys
+ * scan as plain request_body components with mongo-operator keys reported
+ * straight from the walk, leaves scan as request_body values, and a body
+ * past the parse cap falls back to the blob), and every field or entry
+ * value that itself parses as JSON walks leaf-first with the
+ * ":embedded_json" suffix before its raw value, exactly like the
+ * reference's embedded-JSON check. Excluded field sets (Python
+ * excluded_body_fields) have no PHP config field yet.
  */
 final class BodyFormScan
 {
@@ -29,18 +33,14 @@ final class BodyFormScan
 
     public const MULTIPART_FIELD_CONTEXT = 'request_body:multipart_field';
 
-    /** Cap on nested JSON-in-JSON leaf expansion (see embeddedJsonEntries). */
-    private const EMBEDDED_JSON_MAX_DEPTH = 8;
-
-    /** Safety cap on leaves per value; Python bounds this with the detection_max_scan_values budget, which this port has no surface for. */
-    private const EMBEDDED_JSON_MAX_LEAVES = 1000;
-
     /**
      * Scan values for a request body: urlencoded forms split into field
      * pairs, multipart bodies into part entries (binary-dense file payloads
-     * reduced to islands), everything else scanned as the one raw body.
+     * reduced to islands), JSON-content-type bodies walked as ordered JSON
+     * (mongo-operator keys, key components, leaves, compact serialization
+     * at the depth cap), everything else scanned as the one raw body.
      *
-     * @return list<array{string, string}> [value, context] pairs in scan order
+     * @return list<array{string, string, ?string}> [value, context, forcedCategory] in scan order
      */
     public static function bodyScanEntries(string $rawBody, string $contentType, int $binaryMinRunLength): array
     {
@@ -54,26 +54,32 @@ final class BodyFormScan
                 return $entries;
             }
         }
+        if (str_contains($lowered, 'json')) {
+            $root = JsonWalk::parse($rawBody);
+            if ($root !== null) {
+                return JsonWalk::walkEntries($root, 'request_body');
+            }
+        }
 
-        return [[$rawBody, 'request_body']];
+        return [[$rawBody, 'request_body', null]];
     }
 
     /**
      * Urlencoded form fields: the field name scans as a plain request_body
      * component, the value scans with the :form_field context after its
-     * embedded JSON leaves (mirroring parse_qsl with keep_blank_values).
+     * embedded JSON walk (mirroring parse_qsl with keep_blank_values).
      *
-     * @return list<array{string, string}>
+     * @return list<array{string, string, ?string}>
      */
     public static function formScanEntries(string $rawBody): array
     {
         $entries = [];
         foreach (self::parseQsl($rawBody) as [$name, $value]) {
-            $entries[] = [$name, 'request_body'];
-            foreach (self::embeddedJsonEntries($value, self::FORM_FIELD_CONTEXT) as $pair) {
-                $entries[] = $pair;
+            $entries[] = [$name, 'request_body', null];
+            foreach (self::embeddedJsonEntries($value, self::FORM_FIELD_CONTEXT) as $entry) {
+                $entries[] = $entry;
             }
-            $entries[] = [$value, self::FORM_FIELD_CONTEXT];
+            $entries[] = [$value, self::FORM_FIELD_CONTEXT, null];
         }
 
         return $entries;
@@ -86,7 +92,7 @@ final class BodyFormScan
      * Returns null when the body is not multipart-parseable so the caller
      * falls back to the whole-body blob scan (Python _scan_blob_body).
      *
-     * @return list<array{string, string}>|null
+     * @return list<array{string, string, ?string}>|null
      */
     public static function multipartScanEntries(string $rawBody, string $contentType, int $binaryMinRunLength): ?array
     {
@@ -99,12 +105,12 @@ final class BodyFormScan
             if ($values === []) {
                 continue;
             }
-            $entries[] = [$label, 'request_body'];
+            $entries[] = [$label, 'request_body', null];
             foreach ($values as $value) {
-                foreach (self::embeddedJsonEntries($value, self::MULTIPART_FIELD_CONTEXT) as $pair) {
-                    $entries[] = $pair;
+                foreach (self::embeddedJsonEntries($value, self::MULTIPART_FIELD_CONTEXT) as $entry) {
+                    $entries[] = $entry;
                 }
-                $entries[] = [$value, self::MULTIPART_FIELD_CONTEXT];
+                $entries[] = [$value, self::MULTIPART_FIELD_CONTEXT, null];
             }
         }
 
@@ -470,72 +476,24 @@ final class BodyFormScan
     }
 
     /**
-     * Embedded JSON leaves scanned before the raw value (Python
-     * _check_embedded_json): a value whose JSON parses to an object or array
-     * has every scalar leaf scanned with the context plus the
-     * :embedded_json suffix; a string leaf that is itself JSON expands
-     * recursively. The caller still scans the raw value afterwards, exactly
-     * like the Python fall-through.
+     * The embedded JSON walk of one field or entry value: a value whose
+     * JSON parses to an object or array walks leaf-first with the context
+     * plus the :embedded_json suffix (keys scan as plain request_body
+     * components, mongo-operator keys report straight from the walk); the
+     * caller still scans the raw value afterwards, exactly like the
+     * reference's embedded-JSON fall-through. Unparseable values produce no
+     * walk entries.
      *
-     * @return list<array{string, string}>
+     * @return list<array{string, string, ?string}>
      */
-    public static function embeddedJsonEntries(string $value, string $context): array
+    private static function embeddedJsonEntries(string $value, string $context): array
     {
-        $decoded = json_decode($value, true, 512);
-        if (!is_array($decoded)) {
+        $root = JsonWalk::parse($value);
+        if ($root === null) {
             return [];
         }
-        $leaves = [];
-        $context = $context . ':embedded_json';
-        self::walkJsonLeaves($decoded, $context, 1, $leaves);
 
-        return $leaves;
-    }
-
-    /**
-     * @param list<array{string, string}> $leaves
-     */
-    private static function walkJsonLeaves(mixed $node, string $context, int $depth, array &$leaves): void
-    {
-        if (count($leaves) >= self::EMBEDDED_JSON_MAX_LEAVES) {
-            return;
-        }
-        if (is_array($node)) {
-            if ($depth >= 512) {
-                return;
-            }
-            foreach ($node as $child) {
-                self::walkJsonLeaves($child, $context, $depth + 1, $leaves);
-            }
-
-            return;
-        }
-        if (is_string($node) && $depth < self::EMBEDDED_JSON_MAX_DEPTH) {
-            $decoded = json_decode($node, true, 512);
-            if (is_array($decoded)) {
-                self::walkJsonLeaves($decoded, $context, $depth + 1, $leaves);
-
-                return;
-            }
-        }
-        $leaves[] = [self::stringifyScalar($node), $context];
-    }
-
-    private static function stringifyScalar(mixed $value): string
-    {
-        if (is_bool($value)) {
-            return $value ? 'True' : 'False';
-        }
-        if ($value === null) {
-            return 'None';
-        }
-        if (is_float($value)) {
-            $encoded = json_encode($value);
-
-            return $encoded === false ? (string) $value : $encoded;
-        }
-
-        return (string) $value;
+        return JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX);
     }
 
     /**
