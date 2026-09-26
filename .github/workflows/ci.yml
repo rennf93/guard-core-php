@@ -105,6 +105,9 @@ jobs:
       - name: test_exempt_ips
         run: php bin/test_exempt_ips.php
 
+      - name: test_excluded_headers
+        run: php bin/test_excluded_headers.php
+
   composer-audit:
     name: Composer audit
     runs-on: ubuntu-latest

@@ -3,6 +3,16 @@
 Unreleased
 ----------
 
+Excluded detection headers config
+---------------------------------
+
+### Added
+
+- **The reference's excluded-header detection surface is now available in PHP: the hardcoded proxy identity set (`HeaderExclusions::DEFAULT_EXCLUDED_HEADERS`, the reference's `_DEFAULT_EXCLUDED_HEADERS`) plus a new `SecurityConfig` field (`excludedDetectionHeaders`, spec-frozen name `excluded_detection_headers`), and excluded headers are no longer absent from the scan.** Before this change PHP had no header exclusion surface at all, so a bare `x-forwarded-for: 192.168.65.1` false-positived the ssrf category, and the only way to silence a noisy header was to disable detection entirely. The header scan in `SuspiciousActivityCheck::scanValues` now resolves the merged exclusion set (defaults plus the configured entries, lowercased on merge, entries kept verbatim like every sibling exclusion field) through the new `RenzoFranceschini\GuardCore\Detection\HeaderExclusions` port of `guard_core/_utils/detection_config.py`, and an excluded header keeps scanning with every enabled category except the ssrf skip resolved per value (`_excluded_header_skip_categories`): address-carrying headers (`host`, `origin`, the forwarding family, the client-ip family, `via`) skip ssrf for any value, any other excluded header skips ssrf only when its whole value parses as an address chain (`_strip_forwarded_entry_port` plus comma-token IP parsing, so `10.0.0.5, 172.16.0.1` reads as a proxy chain while `203.0.113.10' OR '1'='1` still detects as sqli and `<script>alert(1)</script>` as xss, and the always-scan cmd_injection shapes such as `${jndi:...}` keep detecting everywhere). The skip set rides on the scan entries (embedded-JSON walk leaves included) and is filtered in `check()` next to the `enabled_detection_categories` filter. Entries are validated fail-closed at construction exactly like `excluded_detection_params`/`excluded_detection_body_fields` (`validateExclusionSet`), and the field participates in `with()` immutability and revision bumping like sibling fields. Parity with guard-core `excluded_detection_headers`.
+
+### Verification
+
+- Full suite green on PHP 8.3 (Docker, php:8.3-cli, throwaway redis:7-alpine for the Redis-backed runners): `bin/conformance.php` 184/184 (verdicts unchanged), `bin/test_nfkc.php` 142301/142301, `bin/test_body_form_scan.php` 72/72, `bin/test_json_walk.php` 56/56, `bin/test_exempt_ips.php` 52/52, `bin/test_state.php`, `bin/test_m3c.php` 93/93, `bin/test_binary_noise_gate.php` 80/80, `bin/test_recon_context_gate.php` 141/141, `bin/test_recon_raw_view_scan.php` 77/77, `bin/test_m3b.php` 106/106, `bin/test_m4.php` 144/144 all green, and the new `bin/test_excluded_headers.php` honesty runner (50 assertions: address-carrying proxy values not flagged by default, structured proxy header values not flagged, jndi/sqli/xss on excluded headers still blocking, unknown headers keeping the full scan, configured exclusions suppressing ssrf only with address chains and ports, the ssrf-only enabled-categories interaction, the `HeaderExclusions` helper matrix, validation and `with()` immutability, and empty-config current-behavior pins) registered in the Makefile `RUNNERS` list and the CI workflow.
 Geo rate limit tiers reachable end to end
 -----------------------------------------
 
