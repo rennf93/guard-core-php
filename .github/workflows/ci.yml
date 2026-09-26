@@ -58,6 +58,11 @@ jobs:
           REDIS_HOST: 127.0.0.1
         run: php bin/test_ratelimit.php
 
+      - name: test_geo_rate_limits
+        env:
+          REDIS_HOST: 127.0.0.1
+        run: php bin/test_geo_rate_limits.php
+
       - name: test_pipeline
         env:
           REDIS_HOST: 127.0.0.1
