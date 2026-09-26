@@ -42,6 +42,19 @@ from guard_core.handlers._suspatterns_pattern_table import (  # noqa: E402
     NOISE_PRONE_PATTERN_SOURCES,
     RECON_OPTIONAL_SEPARATOR_PATTERN_SOURCES,
 )
+
+try:
+    from guard_core.handlers._suspatterns_pattern_table import (  # noqa: E402
+        DETECTION_RECON_RAW_VIEW_PATTERN_SOURCES,
+    )
+except ImportError:
+    # Reference checkout predates the raw-view recon scan fix: derive the set
+    # from the table exactly as the reference does (all recon rows).
+    DETECTION_RECON_RAW_VIEW_PATTERN_SOURCES = frozenset(
+        source
+        for source, _contexts, category in _PATTERN_DEFINITIONS
+        if category == "recon"
+    )
 from guard_core.handlers._suspatterns_shell_sources import (  # noqa: E402
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
     _GLOB_WILDCARD_ATOM_RE,
@@ -240,6 +253,11 @@ def gen_patterns() -> None:
     lines.append("")
     lines.append("    public const RAW_VIEW_SOURCES = [")
     for s in sorted(DETECTION_RAW_VIEW_PATTERN_SOURCES):
+        lines.append(f"        {php_str(s)},")
+    lines.append("    ];")
+    lines.append("")
+    lines.append("    public const RECON_RAW_VIEW_PATTERN_SOURCES = [")
+    for s in sorted(DETECTION_RECON_RAW_VIEW_PATTERN_SOURCES):
         lines.append(f"        {php_str(s)},")
     lines.append("    ];")
     lines.append("")

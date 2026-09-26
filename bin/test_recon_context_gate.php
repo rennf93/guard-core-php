@@ -71,22 +71,11 @@ const PROBE_PATHS = [
     '/default.asp',
     '/sap',
     '\\README.md',
+    '\\default',
+    '\\report.asp',
     '/actuator/health',
     '/cgi-bin/test.cgi',
     '/README.md',
-];
-
-/**
- * Pre-existing divergence, pinned to keep it visible: "\default" does not
- * detect on master either. The processed view decodes the "\de" byte-run of
- * "\default" into a single Latin-1 character before the recon rows scan, and
- * recon rows are excluded from the raw view, so the match never forms. The
- * Python engine detects this probe; fixing the escape pass would move
- * detection verdicts and belongs with the corpus regen follow-up, not with
- * this gate.
- */
-const KNOWN_DIVERGENCE_PROBES = [
-    '\\default',
 ];
 
 function detect(SusPatterns $sus, string $value, string $context): array
@@ -140,9 +129,6 @@ foreach (PROBE_PATHS as $probe) {
 $t->section('url_path context unchanged: probes and bare words both detect');
 foreach (PROBE_PATHS as $probe) {
     assertReconThreat($t, detect($sus, $probe, 'url_path'), "url_path probe={$probe}");
-}
-foreach (KNOWN_DIVERGENCE_PROBES as $probe) {
-    $t->same(false, detect($sus, $probe, 'url_path')['is_threat'], "url_path known-divergence probe={$probe} stays undetected (pre-existing)");
 }
 foreach (['/default', '/sap', '/README.md'] as $path) {
     assertReconThreat($t, detect($sus, $path, 'url_path'), "url_path path={$path}");

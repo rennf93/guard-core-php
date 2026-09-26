@@ -86,10 +86,20 @@ final class SusPatterns
         return in_array($source, PatternData::URL_DECODED_VIEW_SOURCES, true);
     }
 
+    private static function isReconRawViewSource(string $source): bool
+    {
+        return in_array($source, PatternData::RECON_RAW_VIEW_PATTERN_SOURCES, true);
+    }
+
     private static function patternExcludedFromView(string $source, string $viewMode): bool
     {
         if ($viewMode === 'raw') {
-            return self::isUrlDecodedViewSource($source) || !self::isRawViewSource($source);
+            // Recon rows also run on the raw view: the processed views fold
+            // LDAP hex escapes ("\de" -> "Þ") before the pattern tables run,
+            // so separator-prefixed probes such as "\default" only survive
+            // there (upstream DETECTION_RECON_RAW_VIEW_PATTERN_SOURCES).
+            return self::isUrlDecodedViewSource($source)
+                || !(self::isRawViewSource($source) || self::isReconRawViewSource($source));
         }
         if ($viewMode === 'url_decoded') {
             return self::isRawViewSource($source) || !self::isUrlDecodedViewSource($source);
@@ -116,6 +126,37 @@ final class SusPatterns
         }
 
         return $out;
+    }
+
+    /**
+     * Keep only the raw-view threats whose (pattern, match text) pair the
+     * processed views have not already recorded. Threat and matched-pattern
+     * lists are parallel (one append per match), so a raw-view sighting of a
+     * pattern over text the processed views already matched is the same
+     * evidence and must not inflate the threat score (upstream
+     * `_drop_view_duplicate_threats`).
+     *
+     * @param list<array<string, mixed>> $seenThreats
+     * @param list<array<string, mixed>> $newThreats
+     * @return list<array<string, mixed>>
+     */
+    private static function dropViewDuplicateThreats(array $seenThreats, array $newThreats): array
+    {
+        $seen = [];
+        foreach ($seenThreats as $threat) {
+            $seen[$threat['pattern'] . "\x00" . $threat['match']] = true;
+        }
+        $kept = [];
+        foreach ($newThreats as $threat) {
+            $key = $threat['pattern'] . "\x00" . $threat['match'];
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $kept[] = $threat;
+        }
+
+        return $kept;
     }
 
     private function buildRegexThreat(string $source, array $match, string $category, string $content, string $validatorContext, ?array $binaryPrefix): ?array
@@ -410,9 +451,14 @@ final class SusPatterns
 
         $rawViewContent = $this->preprocessor->preprocessSignalPreserving($content);
         [$rawThreats, $rawMatched, $rawTimeouts] = $this->checkRegexPatterns($rawViewContent, $context, 'raw');
+        // A (pattern, match) the processed views already recorded is the same
+        // evidence; drop it so a row matching both views counts once. Raw-view
+        // timeout sources are deduplicated the same way.
+        $rawThreats = self::dropViewDuplicateThreats($regexThreats, $rawThreats);
+        $rawMatched = array_column($rawThreats, 'pattern');
         $regexThreats = array_merge($regexThreats, $rawThreats);
         $matchedPatterns = array_merge($matchedPatterns, $rawMatched);
-        $timeouts = array_merge($timeouts, $rawTimeouts);
+        $timeouts = array_merge($timeouts, array_values(array_diff($rawTimeouts, $timeouts)));
 
         $decodedViewThreat = $this->checkDecodedViewPathTraversal($processedContent, $content, $context);
         if ($decodedViewThreat !== null) {
