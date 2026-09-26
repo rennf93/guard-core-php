@@ -35,6 +35,16 @@ Clean-parse fall-through for nested JSON leaf walks
 ### Verification
 
 - Full suite green on PHP 8.3 (Docker, php:8.3-cli, throwaway redis:7-alpine): `bin/conformance.php` 184/184 (verdicts unchanged), `bin/test_nfkc.php` 142301/142301, `bin/test_json_walk.php` 64/64 with 8 new assertions, `bin/test_body_form_scan.php` 72/72, `bin/test_m3c.php` 93/93, `bin/test_state.php`, `bin/test_binary_noise_gate.php` 80/80, `bin/test_recon_context_gate.php` 141/141, `bin/test_recon_raw_view_scan.php` 77/77, `bin/test_exempt_ips.php` 52/52, and the Redis-backed `bin/test_pipeline.php` 107/107, `bin/test_m3b.php` 106/106, `bin/test_m4.php` 144/144. The new walk-level assertions verify red on master (62/64 without the fix) and the runner adds end-to-end pins for a duplicate-key remnant confined to a nested leaf through the form, multipart and header paths.
+test_large_body corpus glob refresh
+-----------------------------------
+
+### Fixed
+
+- **`bin/test_large_body.php` globbed the retired `tests/Conformance/guard-core-spec-4.0.2` corpus directory, so the runner aborted on master with its corpus invariant reading zero cases.** The glob now points at the live `guard-core-spec-4.0.3` corpus, and the gate invariant is stated against the corpus the engine actually ships: every text-protocol case file (max content 14,725 bytes in `boundaries.json`) stays below `SusPatterns::GATED_PATTERN_MAX_SUBJECT_BYTES` (15,360), so no text verdict in the suite depends on the PCRE2-JIT-gated line-walk family, while `binary_bodies.json` intentionally carries subjects above the gate (max 221,630 bytes) - those cases ride the binary-noise island path, are tracked by a separate assertion, and have their exact verdicts pinned by `bin/conformance.php` (184/184). The runner's own synthetic gate probes (24/24) are unchanged and stay deterministic under both `pcre.jit` settings.
+
+### Verification
+
+- `bin/test_large_body.php` 24/24 green on PHP 8.3 (Docker, php:8.3-cli) against the `guard-core-spec-4.0.3` corpus, red on master before the fix (the corpus invariant failed with zero cases globbed); registered in the Makefile `RUNNERS` list and the CI workflow mirroring the #20 runner-registration pattern.
 
 exempt_ips skip-list for trusted automated clients
 ---------------------------------------------------

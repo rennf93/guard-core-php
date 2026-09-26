@@ -120,15 +120,30 @@ $t->truthy($shapeOk, 'every gated pattern is a line-walk or \A-anchored path-wal
 $t->same(15360, SusPatterns::GATED_PATTERN_MAX_SUBJECT_BYTES, 'gate threshold is 15360 (15 KiB)');
 
 $corpusMax = 0;
-foreach (glob(__DIR__ . '/../tests/Conformance/guard-core-spec-4.0.2/cases/*.json') ?: [] as $file) {
+$binaryCorpusMax = 0;
+foreach (glob(__DIR__ . '/../tests/Conformance/guard-core-spec-4.0.3/cases/*.json') ?: [] as $file) {
     $suite = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
     foreach ($suite['cases'] ?? [] as $case) {
-        $corpusMax = max($corpusMax, strlen((string) ($case['input']['content'] ?? '')));
+        $size = strlen((string) ($case['input']['content'] ?? ''));
+        // The binary-body vector file intentionally carries subjects above the
+        // gate: those verdicts ride the binary-noise island path (their exact
+        // outcomes are pinned by bin/conformance.php), not the gated
+        // line-walk family, so they are tracked separately from the
+        // below-gate invariant the text corpus must keep.
+        if (basename($file) === 'binary_bodies.json') {
+            $binaryCorpusMax = max($binaryCorpusMax, $size);
+        } else {
+            $corpusMax = max($corpusMax, $size);
+        }
     }
 }
 $t->truthy(
     $corpusMax > 0 && $corpusMax < SusPatterns::GATED_PATTERN_MAX_SUBJECT_BYTES,
-    "conformance corpus max content ({$corpusMax} bytes) stays below the gate threshold"
+    "text corpus max content ({$corpusMax} bytes) stays below the gate threshold"
+);
+$t->truthy(
+    $binaryCorpusMax >= SusPatterns::GATED_PATTERN_MAX_SUBJECT_BYTES,
+    "binary corpus exercises above-gate subjects (max {$binaryCorpusMax} bytes), verdicts pinned by bin/conformance.php"
 );
 
 $t->section('benign large single-line bodies complete detection (no 500)');
