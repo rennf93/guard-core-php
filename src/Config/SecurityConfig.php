@@ -67,6 +67,9 @@ final class SecurityConfig
     /** @var list<string> */
     public readonly array $blacklist;
 
+    /** @var list<string> */
+    public readonly array $exemptIps;
+
     public readonly bool $enableIpBanning;
 
     public readonly int $autoBanThreshold;
@@ -152,6 +155,7 @@ final class SecurityConfig
      *
      * @param list<string>|null $whitelist
      * @param list<string> $blacklist
+     * @param list<string> $exemptIps IPs/CIDRs that skip the rate-limit, user-agent and cloud-provider checks; never a deny path (the whitelist, blacklist, bans and detection still apply)
      * @param list<string> $trustedProxies
      * @param array<string, array{threshold: int, duration: int}> $threatBanConfig
      * @param array<string, array{limit: int, window: int}> $endpointRateLimits
@@ -184,6 +188,7 @@ final class SecurityConfig
         ?bool $trustXForwardedProto = null,
         ?array $whitelist = null,
         ?array $blacklist = null,
+        ?array $exemptIps = null,
         ?bool $enableIpBanning = null,
         ?int $autoBanThreshold = null,
         ?int $autoBanDuration = null,
@@ -237,6 +242,7 @@ final class SecurityConfig
         $this->trustXForwardedProto = $trustXForwardedProto ?? false;
         $this->whitelist = $whitelist === null ? null : $this->validateIpCidrList($whitelist, 'whitelist');
         $this->blacklist = $this->validateIpCidrList($blacklist ?? [], 'blacklist');
+        $this->exemptIps = $this->validateIpCidrList($exemptIps ?? [], 'exempt_ips');
         $this->enableIpBanning = $enableIpBanning ?? true;
         $this->autoBanThreshold = $autoBanThreshold ?? 10;
         if ($this->autoBanThreshold < 1) {
@@ -414,6 +420,7 @@ final class SecurityConfig
             'trustXForwardedProto' => $this->trustXForwardedProto,
             'whitelist' => $this->whitelist,
             'blacklist' => $this->blacklist,
+            'exemptIps' => $this->exemptIps,
             'enableIpBanning' => $this->enableIpBanning,
             'autoBanThreshold' => $this->autoBanThreshold,
             'autoBanDuration' => $this->autoBanDuration,

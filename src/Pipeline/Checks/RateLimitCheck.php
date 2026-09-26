@@ -47,7 +47,7 @@ final class RateLimitCheck extends SecurityCheck
     public function check(GuardRequest $request): ?GuardResponse
     {
         $clientIp = $request->state()->clientIp;
-        if ($clientIp === null || $request->state()->isWhitelisted) {
+        if ($clientIp === null || $request->state()->isWhitelisted || $request->state()->isExempt) {
             return null;
         }
 

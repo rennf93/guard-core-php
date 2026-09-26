@@ -30,6 +30,19 @@ $config = new SecurityConfig(
 $engine = new GuardEngine($config);
 ```
 
+## IP lists: whitelist vs exempt_ips
+
+`whitelist` and `exempt_ips` answer different questions. A non-empty `whitelist` is restrictive: every IP not on it is denied by the global IP check. `exempt_ips` is noise reduction for known-friendly automation (monitoring probes, VPN egress, a partner's server): a listed IP or CIDR skips the rate-limit, user-agent and per-route cloud-provider checks, but it is not immunity. The blacklist, dynamic IP bans, the global `block_cloud_providers` list and penetration detection still apply to exempt IPs, the whitelist deny path is unchanged (an exempt IP does not pass a restrictive whitelist it is not on), and an invalid entry fails closed at config construction. Entries accept IPv4, IPv6 and IPv4-mapped forms with the same matching semantics as the whitelist.
+
+```php
+$config = new SecurityConfig(
+    enableRedis: false,
+    exemptIps: ['198.51.100.7', '198.51.100.0/28'],
+);
+
+$engine = new GuardEngine($config);
+```
+
 ## Detection limits
 
 
