@@ -276,9 +276,14 @@ $t->same(false, blocked($nestedCheck, json_encode(['messages' => [['role' => 'us
 $t->same(true, blocked($nestedCheck, json_encode(['outer' => ['note' => SCRIPT]]), JSON_CT), 'nested non-excluded key still blocks');
 $t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['safe'])), json_encode([['note' => SCRIPT]]), JSON_CT), 'top-level JSON array still recurses');
 
-$t->section('excluded body fields: embedded JSON in query and header values');
-$t->same(false, blockedQueryValue($bodyFieldCheck, json_encode(['search' => SCRIPT])), 'excluded key inside a query JSON does not block');
-$t->same(true, blockedQueryValue($bodyFieldCheck, json_encode(['search' => SCRIPT, 'note' => SCRIPT])), 'sibling key inside a query JSON still blocks');
+$t->section('excluded body fields: the raw query value still scans (defense in depth)');
+// Reference semantics verified against the engine: the excluded body field
+// shapes the embedded walk, but the raw value itself still scans afterwards,
+// so a query JSON whose only key is excluded still detects through the raw
+// text. The JSON is built by hand (json_encode would escape forward slashes
+// and change the payload text).
+$t->same(true, blockedQueryValue($bodyFieldCheck, '{"search":"' . SCRIPT . '"}'), 'query JSON with only an excluded key still blocks via the raw scan');
+$t->same(true, blockedQueryValue($bodyFieldCheck, '{"search":"' . SCRIPT . '","note":"' . SCRIPT . '"}'), 'query JSON with a sibling key still blocks');
 
 $t->section('excluded body fields: urlencoded pairs');
 $t->same(true, blocked(makeCheck(new SecurityConfig(excludedDetectionBodyFields: ['other'])), 'message=' . urlencode(SCRIPT) . '&other=hi', FORM_CT), 'non-excluded form field still blocks');
