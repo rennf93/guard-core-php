@@ -64,11 +64,15 @@ final class JsonWalk
      * The scan values of one JSON walk in the reference order:
      * [content, context, forcedCategory]. forcedCategory is 'nosql' for the
      * mongo-operator-key hits, which the pipeline reports without a pattern
-     * scan (body_json_scan._mongo_operator_key_hit).
+     * scan (body_json_scan._mongo_operator_key_hit). $excludedBodyFields
+     * mirrors body_json_scan's excluded_body_fields: an entry key matching
+     * the set (case-insensitively) skips its whole subtree - the key does
+     * not scan and the value never descends.
      *
+     * @param array<string, true> $excludedBodyFields
      * @return list<array{string, string, ?string}>
      */
-    public static function walkEntries(object|array $root, string $context): array
+    public static function walkEntries(object|array $root, string $context, array $excludedBodyFields = []): array
     {
         $allowLeafReparse = $context !== self::REQUEST_BODY_CONTEXT;
         $entries = [];
@@ -77,6 +81,9 @@ final class JsonWalk
             $frame = array_pop($stack);
             if ($frame['isEntry']) {
                 $keyStr = $frame['key'];
+                if (isset($excludedBodyFields[strtolower($keyStr)])) {
+                    continue;
+                }
                 if (preg_match(self::MONGO_OPERATOR_KEY_RE, $keyStr) === 1) {
                     $entries[] = [$keyStr, self::REQUEST_BODY_CONTEXT, 'nosql'];
                     continue;
@@ -115,7 +122,7 @@ final class JsonWalk
             if ($allowLeafReparse && is_string($node)) {
                 $inner = self::parse($node);
                 if ($inner !== null) {
-                    foreach (self::walkEntries($inner, $context . self::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX) as $entry) {
+                    foreach (self::walkEntries($inner, $context . self::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX, $excludedBodyFields) as $entry) {
                         $entries[] = $entry;
                     }
                     continue;

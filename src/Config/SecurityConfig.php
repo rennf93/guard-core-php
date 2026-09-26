@@ -96,6 +96,12 @@ final class SecurityConfig
 
     public readonly int $detectionBinaryMinRunLength;
 
+    /** @var array<string, true> */
+    public readonly array $excludedDetectionParams;
+
+    /** @var array<string, true> */
+    public readonly array $excludedDetectionBodyFields;
+
     /** @var list<string> */
     public readonly array $excludePaths;
 
@@ -150,6 +156,8 @@ final class SecurityConfig
      * @param array<string, array{threshold: int, duration: int}> $threatBanConfig
      * @param array<string, array{limit: int, window: int}> $endpointRateLimits
      * @param list<string>|null $enabledDetectionCategories null = all categories
+     * @param list<string> $excludedDetectionParams query parameter names excluded from penetration detection scanning
+     * @param list<string> $excludedDetectionBodyFields body field names excluded from penetration detection scanning (JSON keys at any nesting depth, urlencoded and multipart field names)
      * @param list<string> $excludePaths
      * @param list<string> $mutedCheckLogs
      * @param list<string> $logSensitiveHeaders
@@ -189,6 +197,8 @@ final class SecurityConfig
         ?array $enabledDetectionCategories = null,
         ?float $detectionSemanticThreshold = null,
         ?int $detectionBinaryMinRunLength = null,
+        ?array $excludedDetectionParams = null,
+        ?array $excludedDetectionBodyFields = null,
         ?array $excludePaths = null,
         ?array $mutedCheckLogs = null,
         ?array $logSensitiveHeaders = null,
@@ -252,6 +262,8 @@ final class SecurityConfig
         if ($this->detectionBinaryMinRunLength < 4 || $this->detectionBinaryMinRunLength > 1024) {
             throw new \InvalidArgumentException('detection_binary_min_run_length must be within [4, 1024]');
         }
+        $this->excludedDetectionParams = $this->validateExclusionSet($excludedDetectionParams, 'excluded_detection_params');
+        $this->excludedDetectionBodyFields = $this->validateExclusionSet($excludedDetectionBodyFields, 'excluded_detection_body_fields');
         $this->excludePaths = $this->validateExcludePaths($excludePaths ?? self::DEFAULT_EXCLUDE_PATHS);
         $this->mutedCheckLogs = $this->validateNameSet($mutedCheckLogs, self::CHECK_NAME_VALUES, 'muted_check_logs');
         $this->logSensitiveHeaders = $this->validateSensitiveSet($logSensitiveHeaders, 'log_sensitive_headers');
@@ -415,6 +427,8 @@ final class SecurityConfig
             'enabledDetectionCategories' => array_keys($this->enabledDetectionCategories),
             'detectionSemanticThreshold' => $this->detectionSemanticThreshold,
             'detectionBinaryMinRunLength' => $this->detectionBinaryMinRunLength,
+            'excludedDetectionParams' => array_keys($this->excludedDetectionParams),
+            'excludedDetectionBodyFields' => array_keys($this->excludedDetectionBodyFields),
             'excludePaths' => $this->excludePaths,
             'mutedCheckLogs' => array_keys($this->mutedCheckLogs),
             'logSensitiveHeaders' => array_keys($this->logSensitiveHeaders),
@@ -624,6 +638,30 @@ final class SecurityConfig
                 throw new \InvalidArgumentException("{$field}: items must be strings");
             }
             $out[strtolower($name)] = true;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Exclusion sets keep their entries verbatim (Python's _STR_SET_ADAPTER
+     * stores them as given): scan sites lower the scanned name or key and
+     * test membership against the untouched entries, exactly like the
+     * reference's `key.lower() in excluded_params` membership tests.
+     *
+     * @param list<string>|null $names @return array<string, true>
+     */
+    private function validateExclusionSet(?array $names, string $field): array
+    {
+        if (is_string($names)) {
+            throw new \InvalidArgumentException("{$field}: bare string rejected, pass a list of names");
+        }
+        $out = [];
+        foreach ($names ?? [] as $name) {
+            if (!is_string($name)) {
+                throw new \InvalidArgumentException("{$field}: items must be strings");
+            }
+            $out[$name] = true;
         }
 
         return $out;

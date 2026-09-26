@@ -24,8 +24,10 @@ namespace RenzoFranceschini\GuardCore\Detection;
  * past the parse cap falls back to the blob), and every field or entry
  * value that itself parses as JSON walks leaf-first with the
  * ":embedded_json" suffix before its raw value, exactly like the
- * reference's embedded-JSON check. Excluded field sets (Python
- * excluded_body_fields) have no PHP config field yet.
+ * reference's embedded-JSON check. $excludedBodyFields mirrors Python
+ * excluded_detection_body_fields: urlencoded field names and multipart
+ * part names skip their whole pair or part, and JSON object keys matching
+ * the set (at any nesting depth) skip their whole subtree.
  */
 final class BodyFormScan
 {
@@ -40,16 +42,17 @@ final class BodyFormScan
      * (mongo-operator keys, key components, leaves, compact serialization
      * at the depth cap), everything else scanned as the one raw body.
      *
+     * @param array<string, true> $excludedBodyFields
      * @return list<array{string, string, ?string}> [value, context, forcedCategory] in scan order
      */
-    public static function bodyScanEntries(string $rawBody, string $contentType, int $binaryMinRunLength): array
+    public static function bodyScanEntries(string $rawBody, string $contentType, int $binaryMinRunLength, array $excludedBodyFields = []): array
     {
         $lowered = strtolower($contentType);
         if (str_contains($lowered, 'application/x-www-form-urlencoded')) {
-            return self::formScanEntries($rawBody);
+            return self::formScanEntries($rawBody, $excludedBodyFields);
         }
         if (str_contains($lowered, 'multipart/form-data')) {
-            $entries = self::multipartScanEntries($rawBody, $contentType, $binaryMinRunLength);
+            $entries = self::multipartScanEntries($rawBody, $contentType, $binaryMinRunLength, $excludedBodyFields);
             if ($entries !== null) {
                 return $entries;
             }
@@ -57,7 +60,7 @@ final class BodyFormScan
         if (str_contains($lowered, 'json')) {
             $root = JsonWalk::parse($rawBody);
             if ($root !== null) {
-                return JsonWalk::walkEntries($root, 'request_body');
+                return JsonWalk::walkEntries($root, 'request_body', $excludedBodyFields);
             }
         }
 
@@ -67,16 +70,22 @@ final class BodyFormScan
     /**
      * Urlencoded form fields: the field name scans as a plain request_body
      * component, the value scans with the :form_field context after its
-     * embedded JSON walk (mirroring parse_qsl with keep_blank_values).
+     * embedded JSON walk (mirroring parse_qsl with keep_blank_values). An
+     * excluded field name skips its whole pair (body_form_scan.py's
+     * `name.lower() in excluded_body_fields` guard).
      *
+     * @param array<string, true> $excludedBodyFields
      * @return list<array{string, string, ?string}>
      */
-    public static function formScanEntries(string $rawBody): array
+    public static function formScanEntries(string $rawBody, array $excludedBodyFields = []): array
     {
         $entries = [];
         foreach (self::parseQsl($rawBody) as [$name, $value]) {
+            if (isset($excludedBodyFields[strtolower($name)])) {
+                continue;
+            }
             $entries[] = [$name, 'request_body', null];
-            foreach (self::embeddedJsonEntries($value, self::FORM_FIELD_CONTEXT) as $entry) {
+            foreach (self::embeddedJsonEntries($value, self::FORM_FIELD_CONTEXT, $excludedBodyFields) as $entry) {
                 $entries[] = $entry;
             }
             $entries[] = [$value, self::FORM_FIELD_CONTEXT, null];
@@ -89,12 +98,16 @@ final class BodyFormScan
      * Multipart parts: the field label scans as a plain request_body
      * component, each entry value (filename, part headers, payload) scans
      * with the :multipart_field context after its embedded JSON leaves.
-     * Returns null when the body is not multipart-parseable so the caller
-     * falls back to the whole-body blob scan (Python _scan_blob_body).
+     * A part whose name matches the excluded set skips its whole part
+     * (_scan_multipart_part's exclusion_key guard); a part without a name
+     * has no exclusion key and is always scanned. Returns null when the
+     * body is not multipart-parseable so the caller falls back to the
+     * whole-body blob scan (Python _scan_blob_body).
      *
+     * @param array<string, true> $excludedBodyFields
      * @return list<array{string, string, ?string}>|null
      */
-    public static function multipartScanEntries(string $rawBody, string $contentType, int $binaryMinRunLength): ?array
+    public static function multipartScanEntries(string $rawBody, string $contentType, int $binaryMinRunLength, array $excludedBodyFields = []): ?array
     {
         $parts = self::multipartParts($rawBody, $contentType, $binaryMinRunLength);
         if ($parts === null) {
@@ -102,12 +115,15 @@ final class BodyFormScan
         }
         $entries = [];
         foreach ($parts as [$exclusionKey, $label, $values]) {
+            if ($exclusionKey !== null && isset($excludedBodyFields[strtolower($exclusionKey)])) {
+                continue;
+            }
             if ($values === []) {
                 continue;
             }
             $entries[] = [$label, 'request_body', null];
             foreach ($values as $value) {
-                foreach (self::embeddedJsonEntries($value, self::MULTIPART_FIELD_CONTEXT) as $entry) {
+                foreach (self::embeddedJsonEntries($value, self::MULTIPART_FIELD_CONTEXT, $excludedBodyFields) as $entry) {
                     $entries[] = $entry;
                 }
                 $entries[] = [$value, self::MULTIPART_FIELD_CONTEXT, null];
@@ -484,16 +500,17 @@ final class BodyFormScan
      * reference's embedded-JSON fall-through. Unparseable values produce no
      * walk entries.
      *
+     * @param array<string, true> $excludedBodyFields
      * @return list<array{string, string, ?string}>
      */
-    private static function embeddedJsonEntries(string $value, string $context): array
+    private static function embeddedJsonEntries(string $value, string $context, array $excludedBodyFields = []): array
     {
         $root = JsonWalk::parse($value);
         if ($root === null) {
             return [];
         }
 
-        return JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX);
+        return JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX, $excludedBodyFields);
     }
 
     /**

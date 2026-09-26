@@ -130,14 +130,28 @@ final class SuspiciousActivityCheck extends SecurityCheck
      * leaf-first with the :embedded_json context suffix before the raw
      * value.
      *
+     * Exclusion sets mirror the reference's config surface:
+     * excluded_detection_params skips a query parameter's whole pair
+     * (`key.lower() in excluded_params` in _scan_query_params), and
+     * excluded_detection_body_fields skips urlencoded pairs and multipart
+     * parts by field name and whole JSON subtrees by key at any nesting
+     * depth. Query and header values thread the body-field exclusion into
+     * their embedded-JSON walks like the reference's
+     * _scan_query_param_value / _scan_normal_header_component.
+     *
      * @return list<array{string, string, ?string}> [content, context, forcedCategory]
      */
     private function scanValues(GuardRequest $request): array
     {
         $values = [[$request->urlPath(), 'url_path', null]];
+        $excludedParams = $this->config->excludedDetectionParams;
+        $excludedBodyFields = $this->config->excludedDetectionBodyFields;
         foreach ($request->queryParams() as $name => $value) {
+            if (isset($excludedParams[strtolower((string) $name)])) {
+                continue;
+            }
             foreach ((array) $value as $single) {
-                foreach ($this->scannedValue((string) $single, 'query_param') as $entry) {
+                foreach ($this->scannedValue((string) $single, 'query_param', $excludedBodyFields) as $entry) {
                     $values[] = $entry;
                 }
             }
@@ -147,14 +161,14 @@ final class SuspiciousActivityCheck extends SecurityCheck
             if (isset($this->config->logSensitiveHeaders[strtolower($name)])) {
                 continue;
             }
-            foreach ($this->scannedValue((string) $value, 'header') as $entry) {
+            foreach ($this->scannedValue((string) $value, 'header', $excludedBodyFields) as $entry) {
                 $values[] = $entry;
             }
         }
         $body = $request->body();
         if ($body !== '') {
             $contentType = $headers->get('content-type') ?? '';
-            foreach (BodyFormScan::bodyScanEntries($body, $contentType, $this->config->detectionBinaryMinRunLength) as [$content, $context, $forcedCategory]) {
+            foreach (BodyFormScan::bodyScanEntries($body, $contentType, $this->config->detectionBinaryMinRunLength, $excludedBodyFields) as [$content, $context, $forcedCategory]) {
                 $values[] = [$content, $context, $forcedCategory];
             }
         }
@@ -165,18 +179,20 @@ final class SuspiciousActivityCheck extends SecurityCheck
     /**
      * One query or header value: an embedded JSON value walks leaf-first
      * with the context plus the :embedded_json suffix (the reference's
-     * embedded-JSON check runs for every non-body context), then the raw
-     * value scans with the plain context.
+     * embedded-JSON check runs for every non-body context, with the
+     * excluded body fields skipping whole JSON subtrees by key), then the
+     * raw value scans with the plain context.
      *
+     * @param array<string, true> $excludedBodyFields
      * @return list<array{string, string, null}>
      */
-    private function scannedValue(string $value, string $context): array
+    private function scannedValue(string $value, string $context, array $excludedBodyFields = []): array
     {
         $root = JsonWalk::parse($value);
         if ($root === null) {
             return [[$value, $context, null]];
         }
-        $entries = JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX);
+        $entries = JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX, $excludedBodyFields);
         $entries[] = [$value, $context, null];
 
         return $entries;

@@ -219,5 +219,25 @@ $t->same(true, in_array('/default.asp', array_map(static fn (array $e): string =
 $entries = BodyFormScan::bodyScanEntries('{"url": "x"}', 'text/plain', 16);
 $t->same([['{"url": "x"}', 'request_body', null]], $entries, 'non-json content types scan as the one raw body');
 
+$t->section('walk: excluded keys skip their whole subtree');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"secret": {"a": "' . SCRIPT . '"}, "ok": 1}'), 'request_body', ['secret' => true]);
+$values = array_map(static fn (array $e): string => $e[0], $entries);
+$t->same(false, in_array(SCRIPT, $values, true), 'excluded key subtree never scans');
+$t->same(false, in_array('a', $values, true), 'excluded key descendants never scan');
+$t->same(true, in_array('ok', $values, true), 'non-excluded siblings still scan');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"$where": "1==1", "secret": 1}'), 'request_body', ['secret' => true]);
+$t->same('nosql', $entries[0][2] ?? null, 'mongo operator key outside the excluded subtree still reports');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"$where": "1==1"}'), 'request_body', ['$where' => true]);
+$t->same([], $entries, 'exclusion is checked before the mongo-operator registry');
+$inner = str_replace('"', '\\"', '{"secret": "' . SCRIPT . '"}');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"outer": "' . $inner . '"}'), 'request_body:form_field:embedded_json', ['secret' => true]);
+$values = array_map(static fn (array $e): string => $e[0], $entries);
+$t->same(false, in_array(SCRIPT, $values, true), 'exclusion threads into re-parsed leaf walks');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"Note": "x"}'), 'request_body', ['note' => true]);
+$values = array_map(static fn (array $e): string => $e[0], $entries);
+$t->same(false, in_array('Note', $values, true), 'keys compare lowercased against verbatim entries');
+$entries = JsonWalk::walkEntries(JsonWalk::parse('{"note": "x"}'), 'request_body', ['Note' => true]);
+$t->same(2, count($entries), 'entries never lowercase against the exclusion set');
+
 echo "\npassed={$t->passed} failed={$t->failed}\n";
 exit($t->failed === 0 ? 0 : 1);
