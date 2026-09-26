@@ -7,6 +7,7 @@ namespace RenzoFranceschini\GuardCore\Pipeline\Checks;
 use RenzoFranceschini\GuardCore\Ban\IpBanManager;
 use RenzoFranceschini\GuardCore\Config\SecurityConfig;
 use RenzoFranceschini\GuardCore\Detection\BodyFormScan;
+use RenzoFranceschini\GuardCore\Detection\HeaderExclusions;
 use RenzoFranceschini\GuardCore\Detection\JsonWalk;
 use RenzoFranceschini\GuardCore\Detection\SusPatterns;
 use RenzoFranceschini\GuardCore\Pipeline\SecurityCheck;
@@ -54,12 +55,13 @@ final class SuspiciousActivityCheck extends SecurityCheck
         }
 
         $categories = [];
-        foreach ($this->scanValues($request) as [$content, $context, $forcedCategory]) {
+        foreach ($this->scanValues($request) as [$content, $context, $forcedCategory, $skipCategories]) {
             if ($forcedCategory !== null) {
                 // JSON mongo-operator keys report straight from the walk
                 // (body_json_scan._mongo_operator_key_hit) without a pattern
                 // scan.
                 if (isset($this->config->enabledDetectionCategories[$forcedCategory])
+                    && !isset($skipCategories[$forcedCategory])
                     && !in_array($forcedCategory, $categories, true)
                 ) {
                     $categories[] = $forcedCategory;
@@ -71,6 +73,7 @@ final class SuspiciousActivityCheck extends SecurityCheck
                 foreach ($result['threats'] as $threat) {
                     $category = $threat['category'] ?? 'custom';
                     if (!in_array($category, $categories, true)
+                        && !isset($skipCategories[$category])
                         && isset($this->config->enabledDetectionCategories[$category])
                     ) {
                         $categories[] = $category;
@@ -139,11 +142,21 @@ final class SuspiciousActivityCheck extends SecurityCheck
      * their embedded-JSON walks like the reference's
      * _scan_query_param_value / _scan_normal_header_component.
      *
-     * @return list<array{string, string, ?string}> [content, context, forcedCategory]
+     * Headers listed in the excluded-header surface (the hardcoded proxy
+     * identity set merged with excluded_detection_headers, resolved through
+     * HeaderExclusions) are not skipped outright: like the reference's
+     * _scan_excluded_header_component they keep scanning with every enabled
+     * category except the ones the value is known to false-positive (ssrf
+     * for address-carrying headers and address-chain values), carried as the
+     * entry's skip-category set and filtered in check().
+     *
+     * Each entry is [content, context, forcedCategory, skipCategories].
+     *
+     * @return list<array{string, string, ?string, array<string, true>}>
      */
     private function scanValues(GuardRequest $request): array
     {
-        $values = [[$request->urlPath(), 'url_path', null]];
+        $values = [[$request->urlPath(), 'url_path', null, []]];
         $excludedParams = $this->config->excludedDetectionParams;
         $excludedBodyFields = $this->config->excludedDetectionBodyFields;
         foreach ($request->queryParams() as $name => $value) {
@@ -157,11 +170,15 @@ final class SuspiciousActivityCheck extends SecurityCheck
             }
         }
         $headers = $request->headers();
+        $excludedHeaders = HeaderExclusions::mergedExcludedNames($this->config->excludedDetectionHeaders);
         foreach ($headers->all() as $name => $value) {
             if (isset($this->config->logSensitiveHeaders[strtolower($name)])) {
                 continue;
             }
-            foreach ($this->scannedValue((string) $value, 'header', $excludedBodyFields) as $entry) {
+            $skipCategories = isset($excludedHeaders[strtolower((string) $name)])
+                ? HeaderExclusions::skipCategories((string) $name, (string) $value)
+                : [];
+            foreach ($this->scannedValue((string) $value, 'header', $excludedBodyFields, $skipCategories) as $entry) {
                 $values[] = $entry;
             }
         }
@@ -169,7 +186,7 @@ final class SuspiciousActivityCheck extends SecurityCheck
         if ($body !== '') {
             $contentType = $headers->get('content-type') ?? '';
             foreach (BodyFormScan::bodyScanEntries($body, $contentType, $this->config->detectionBinaryMinRunLength, $excludedBodyFields) as [$content, $context, $forcedCategory]) {
-                $values[] = [$content, $context, $forcedCategory];
+                $values[] = [$content, $context, $forcedCategory, []];
             }
         }
 
@@ -181,19 +198,25 @@ final class SuspiciousActivityCheck extends SecurityCheck
      * with the context plus the :embedded_json suffix (the reference's
      * embedded-JSON check runs for every non-body context, with the
      * excluded body fields skipping whole JSON subtrees by key), then the
-     * raw value scans with the plain context.
+     * raw value scans with the plain context. The skip-category set rides
+     * on every produced entry so the excluded-header ssrf filter applies to
+     * the walk leaves and the raw value alike.
      *
      * @param array<string, true> $excludedBodyFields
-     * @return list<array{string, string, null}>
+     * @param array<string, true> $skipCategories
+     * @return list<array{string, string, null, array<string, true>}>
      */
-    private function scannedValue(string $value, string $context, array $excludedBodyFields = []): array
+    private function scannedValue(string $value, string $context, array $excludedBodyFields = [], array $skipCategories = []): array
     {
         $root = JsonWalk::parse($value);
         if ($root === null) {
-            return [[$value, $context, null]];
+            return [[$value, $context, null, $skipCategories]];
         }
         $entries = JsonWalk::walkEntries($root, $context . JsonWalk::EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX, $excludedBodyFields);
-        $entries[] = [$value, $context, null];
+        foreach ($entries as $i => [$leaf, $leafContext, $leafForced]) {
+            $entries[$i] = [$leaf, $leafContext, $leafForced, $skipCategories];
+        }
+        $entries[] = [$value, $context, null, $skipCategories];
 
         return $entries;
     }

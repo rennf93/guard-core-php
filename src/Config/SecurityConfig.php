@@ -105,6 +105,9 @@ final class SecurityConfig
     /** @var array<string, true> */
     public readonly array $excludedDetectionBodyFields;
 
+    /** @var array<string, true> */
+    public readonly array $excludedDetectionHeaders;
+
     /** @var list<string> */
     public readonly array $excludePaths;
 
@@ -162,6 +165,7 @@ final class SecurityConfig
      * @param list<string>|null $enabledDetectionCategories null = all categories
      * @param list<string> $excludedDetectionParams query parameter names excluded from penetration detection scanning
      * @param list<string> $excludedDetectionBodyFields body field names excluded from penetration detection scanning (JSON keys at any nesting depth, urlencoded and multipart field names)
+     * @param list<string> $excludedDetectionHeaders header names merged into the excluded-header scan: excluded headers skip the ssrf category only when the header is address-carrying or its value parses as an address chain, every other category still scans them
      * @param list<string> $excludePaths
      * @param list<string> $mutedCheckLogs
      * @param list<string> $logSensitiveHeaders
@@ -204,6 +208,7 @@ final class SecurityConfig
         ?int $detectionBinaryMinRunLength = null,
         ?array $excludedDetectionParams = null,
         ?array $excludedDetectionBodyFields = null,
+        ?array $excludedDetectionHeaders = null,
         ?array $excludePaths = null,
         ?array $mutedCheckLogs = null,
         ?array $logSensitiveHeaders = null,
@@ -270,6 +275,7 @@ final class SecurityConfig
         }
         $this->excludedDetectionParams = $this->validateExclusionSet($excludedDetectionParams, 'excluded_detection_params');
         $this->excludedDetectionBodyFields = $this->validateExclusionSet($excludedDetectionBodyFields, 'excluded_detection_body_fields');
+        $this->excludedDetectionHeaders = $this->validateExclusionSet($excludedDetectionHeaders, 'excluded_detection_headers');
         $this->excludePaths = $this->validateExcludePaths($excludePaths ?? self::DEFAULT_EXCLUDE_PATHS);
         $this->mutedCheckLogs = $this->validateNameSet($mutedCheckLogs, self::CHECK_NAME_VALUES, 'muted_check_logs');
         $this->logSensitiveHeaders = $this->validateSensitiveSet($logSensitiveHeaders, 'log_sensitive_headers');
@@ -436,6 +442,7 @@ final class SecurityConfig
             'detectionBinaryMinRunLength' => $this->detectionBinaryMinRunLength,
             'excludedDetectionParams' => array_keys($this->excludedDetectionParams),
             'excludedDetectionBodyFields' => array_keys($this->excludedDetectionBodyFields),
+            'excludedDetectionHeaders' => array_keys($this->excludedDetectionHeaders),
             'excludePaths' => $this->excludePaths,
             'mutedCheckLogs' => array_keys($this->mutedCheckLogs),
             'logSensitiveHeaders' => array_keys($this->logSensitiveHeaders),
